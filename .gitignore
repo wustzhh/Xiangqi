@@ -1,0 +1,26 @@
+# Flutter
+.dart_tool/
+.packages
+build/
+*.iml
+.idea/
+.metadata
+.DS_Store
+*.lock
+**/generated/
+.android/
+.ios/
+.flutter-plugins
+.flutter-plugins-dependencies
+**/Pods/
+**/.symlinks/
+.metadata
+*.xiangqi_key
+
+# Project
+*.log
+test/.cache
+
+# Agent/IDE configs
+reasonix.toml
+*.mcp.json
