@@ -570,7 +570,7 @@ class _GameScreenState extends State<GameScreen>
                 children: [
                   moveList,
                   const VerticalDivider(width: 1),
-                  Expanded(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 500), child: boardArea)),
+                  Expanded(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 600), child: boardArea)),
                   if (_gameState.result == GameResult.playing) ...[
                     const VerticalDivider(width: 1),
                     rightButtons,
