@@ -414,7 +414,7 @@ class _GameScreenState extends State<GameScreen>
     // 走法列表（左）
     final moveList = _gameState.moveCount > 0
         ? SizedBox(
-            width: 140,
+            width: 148,
             child: Column(
               children: [
                 const Padding(
@@ -424,14 +424,43 @@ class _GameScreenState extends State<GameScreen>
                 const Divider(height: 1),
                 Expanded(
                   child: ListView.builder(
-                    itemCount: _gameState.moveCount,
+                    itemCount: (_gameState.moveCount + 1) ~/ 2,
                     itemBuilder: (context, i) {
-                      final move = _gameState.moveHistory[i];
+                      final redIdx = i * 2;
+                      final blackIdx = i * 2 + 1;
+                      final redMove = _gameState.moveHistory[redIdx];
+                      final blackMove = blackIdx < _gameState.moveCount
+                          ? _gameState.moveHistory[blackIdx]
+                          : null;
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        child: Text(
-                          '${move.moveNumber}. ${move.notation}',
-                          style: const TextStyle(fontSize: 11),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: '${i + 1}. ',
+                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                              ),
+                              TextSpan(
+                                text: redMove.chineseNotation,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.red.shade700,
+                                ),
+                              ),
+                              if (blackMove != null) ...[
+                                TextSpan(text: '  ', style: const TextStyle(fontSize: 10)),
+                                TextSpan(
+                                  text: blackMove.chineseNotation,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       );
                     },
@@ -460,100 +489,112 @@ class _GameScreenState extends State<GameScreen>
     );
 
     // 中央棋盘区域
-    final boardArea = Column(
-      children: [
-        GameInfoBar(
-          currentSide: _gameState.currentSide,
-          inCheck: _gameState.inCheck,
-          moveCount: _gameState.moveCount,
-        ),
-        _buildStatsRow(),
-        if (widget.isAiMode)
-          Padding(
-            padding: const EdgeInsets.only(top: 2, bottom: 2),
-            child: Row(
+    final boardArea = LayoutBuilder(
+      builder: (context, constraints) {
+        // 顶部固定内容高度（约 90px）
+        const headerHeight = 90.0;
+        // 底部按钮区域高度（约 60px）
+        const footerHeight = 60.0;
+        // 棋盘最大高度
+        final maxBoardHeight = constraints.maxHeight - headerHeight - footerHeight;
+
+        return Column(
+          children: [
+            GameInfoBar(
+              currentSide: _gameState.currentSide,
+              inCheck: _gameState.inCheck,
+              moveCount: _gameState.moveCount,
+            ),
+            _buildStatsRow(),
+            if (widget.isAiMode)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 2),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_aiThinking) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                    if (_aiThinking) const SizedBox(width: 6),
+                    Text(
+                      _aiThinking ? 'AI 思考中... (${_aiPlayer?.difficultyName ?? ''})' : '${_aiPlayer?.difficultyName ?? ''} 模式',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxBoardHeight),
+                child: ChessBoard(
+                  board: _gameState.board,
+                  selectedPos: _selectedPos,
+                  validMoves: _validMoves,
+                  lastMove: _gameState.lastMove,
+                  animPiece: _animPiece,
+                  playerSide: widget.playerSide,
+                  analysisMode: _analysisMode,
+                  analysisData: _analysisMode != AnalysisMode.none ? AnalysisData.compute(_gameState.board) : null,
+                  analysisSelectedPos: _analysisMode != AnalysisMode.none ? _analysisSelectedPos : null,
+                  onCellTap: _onCellTap,
+                  onCellHover: _analysisMode != AnalysisMode.none
+                      ? (pos) {
+                          if (pos == null) {
+                            setState(() => _analysisSelectedPos = null);
+                            return;
+                          }
+                          final piece = _gameState.board.at(pos);
+                          if (_analysisMode == AnalysisMode.protection || _analysisMode == AnalysisMode.safety) {
+                            if (piece != null && piece.side == _gameState.currentSide) {
+                              if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
+                            } else {
+                              if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
+                            }
+                          } else {
+                            final enemySide = _gameState.currentSide.opponent;
+                            if (piece != null && piece.side == enemySide) {
+                              if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
+                            } else {
+                              if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
+                            }
+                          }
+                        }
+                      : null,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                if (_aiThinking) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                if (_aiThinking) const SizedBox(width: 6),
-                Text(
-                  _aiThinking ? 'AI 思考中... (${_aiPlayer?.difficultyName ?? ''})' : '${_aiPlayer?.difficultyName ?? ''} 模式',
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                IconButton(icon: const Icon(Icons.undo), tooltip: '悔棋', onPressed: _undo),
+                const SizedBox(width: 16),
+                IconButton(icon: const Icon(Icons.refresh), tooltip: '重新开始', onPressed: _reset),
+                const SizedBox(width: 16),
+                IconButton(
+                  icon: Icon(_showDebug ? Icons.bug_report : Icons.bug_report_outlined),
+                  tooltip: '调试面板', onPressed: () => setState(() => _showDebug = !_showDebug),
                 ),
               ],
             ),
-          ),
-        Flexible(
-          flex: 1,
-          fit: FlexFit.loose,
-          child: ChessBoard(
-            board: _gameState.board,
-            selectedPos: _selectedPos,
-            validMoves: _validMoves,
-            lastMove: _gameState.lastMove,
-            animPiece: _animPiece,
-            playerSide: widget.playerSide,
-            analysisMode: _analysisMode,
-            analysisData: _analysisMode != AnalysisMode.none ? AnalysisData.compute(_gameState.board) : null,
-            analysisSelectedPos: _analysisMode != AnalysisMode.none ? _analysisSelectedPos : null,
-            onCellTap: _onCellTap,
-            onCellHover: _analysisMode != AnalysisMode.none
-                ? (pos) {
-                    if (pos == null) {
-                      setState(() => _analysisSelectedPos = null);
-                      return;
-                    }
-                    final piece = _gameState.board.at(pos);
-                    if (_analysisMode == AnalysisMode.protection || _analysisMode == AnalysisMode.safety) {
-                      if (piece != null && piece.side == _gameState.currentSide) {
-                        if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
-                      } else {
-                        if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
-                      }
-                    } else {
-                      final enemySide = _gameState.currentSide.opponent;
-                      if (piece != null && piece.side == enemySide) {
-                        if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
-                      } else {
-                        if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
-                      }
-                    }
-                  }
-                : null,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(icon: const Icon(Icons.undo), tooltip: '悔棋', onPressed: _undo),
-            const SizedBox(width: 16),
-            IconButton(icon: const Icon(Icons.refresh), tooltip: '重新开始', onPressed: _reset),
-            const SizedBox(width: 16),
-            IconButton(
-              icon: Icon(_showDebug ? Icons.bug_report : Icons.bug_report_outlined),
-              tooltip: '调试面板', onPressed: () => setState(() => _showDebug = !_showDebug),
-            ),
+            if (_gameState.result != GameResult.playing)
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Chip(
+                      label: Text(_gameState.result == GameResult.redWin ? '红方胜！' : '黑方胜！',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      backgroundColor: _gameState.result == GameResult.redWin ? Colors.red : Colors.black,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(_gameState.inCheckmate ? '将杀' : (_gameState.inStalemate ? '困毙' : ''),
+                        style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                  ],
+                ),
+              ),
           ],
-        ),
-        if (_gameState.result != GameResult.playing)
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Chip(
-                  label: Text(_gameState.result == GameResult.redWin ? '红方胜！' : '黑方胜！',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                  backgroundColor: _gameState.result == GameResult.redWin ? Colors.red : Colors.black,
-                ),
-                const SizedBox(height: 4),
-                Text(_gameState.inCheckmate ? '将杀' : (_gameState.inStalemate ? '困毙' : ''),
-                    style: const TextStyle(fontSize: 13, color: Colors.grey)),
-              ],
-            ),
-          ),
-      ],
+        );
+      },
     );
 
     return Scaffold(

@@ -251,7 +251,6 @@ class Rules {
 
   /// 对面将（飞将）：两将同列无子间隔时可吃
   void _addFlyingGeneralMove(Position pos, Piece piece, List<Position> moves) {
-    final opponentGeneralRow = piece.side == Side.red ? 0 : 9;
     // 检查同列
     for (int r = 0; r < 10; r++) {
       final p = board.at(Position(pos.col, r));
@@ -267,7 +266,7 @@ class Rules {
           }
         }
         if (!blocked) {
-          moves.add(Position(pos.col, opponentGeneralRow));
+          moves.add(Position(pos.col, r)); // 用实际找到的对手将/帅行号
         }
         break;
       }

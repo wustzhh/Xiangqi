@@ -95,6 +95,28 @@ void main() {
       expect(rules.isCheckmate(Side.red), true);
     });
 
+    test('对面将（飞将）— 非起始位置', () {
+      // 黑将在(4,1)，红帅在(4,8)— 同列、不在 row 0/9
+      // 旧版 Bug：opponentGeneralRow 硬编码为 0/9，检测不到此情况
+      final board = Board();
+      board.set(Position(4, 1), const Piece(type: PieceType.general, side: Side.black));
+      board.set(Position(4, 8), const Piece(type: PieceType.general, side: Side.red));
+      final rules = Rules(board);
+      expect(rules.isInCheck(Side.red), true);
+      expect(rules.isInCheck(Side.black), true);
+    });
+
+    test('对面将（飞将）— 中间有子不算', () {
+      final board = Board();
+      board.set(Position(4, 1), const Piece(type: PieceType.general, side: Side.black));
+      board.set(Position(4, 9), const Piece(type: PieceType.general, side: Side.red));
+      // 中间有红兵挡住
+      board.set(Position(4, 5), const Piece(type: PieceType.soldier, side: Side.red));
+      final rules = Rules(board);
+      expect(rules.isInCheck(Side.red), false);
+      expect(rules.isInCheck(Side.black), false);
+    });
+
     test('对面将（飞将）', () {
       final board = Board();
       board.set(Position(4, 0), const Piece(type: PieceType.general, side: Side.black));
