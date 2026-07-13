@@ -149,7 +149,7 @@ class SearchEngine {
           : 99999 - (_maxDepth - depth);
     }
     if (rules.isStalemate(side)) {
-      return 0;
+      return maximizing ? -99999 + (_maxDepth - depth) : 99999 - (_maxDepth - depth);
     }
 
     // 到达叶节点：做静态搜索（只搜吃子）
@@ -245,7 +245,7 @@ class SearchEngine {
 
     // 检测将杀/困毙
     if (rules.isCheckmate(side)) return maximizing ? -99999 + ply : 99999 - ply;
-    if (rules.isStalemate(side)) return 0;
+    if (rules.isStalemate(side)) return maximizing ? -99999 + ply : 99999 - ply;
 
     // 只生成吃子走法
     final allMoves = rules.allLegalMoves(side);
