@@ -88,7 +88,8 @@ class _ChessBoardState extends State<ChessBoard> {
 
   Position? _toBoardPos(Offset point) {
     final c = ((point.dx - boardPadding) / _cellSize).round();
-    final r = ((point.dy - boardPadding) / _cellSize).round();
+    var r = ((point.dy - boardPadding) / _cellSize).round();
+    if (widget.playerSide == Side.black) r = 9 - r;
     if (c < 0 || c > 8 || r < 0 || r > 9) return null;
     return Position(c, r);
   }
@@ -216,10 +217,13 @@ class ChessBoardPainter extends CustomPainter {
       analysisSelectedPos != oldDelegate.analysisSelectedPos ||
       bgImage != oldDelegate.bgImage;
 
-  Offset _cellPos(int col, int row) => Offset(
-        padding + col * cellSize,
-        padding + row * cellSize,
-      );
+  Offset _cellPos(int col, int row) {
+    final displayRow = (playerSide == Side.black) ? (9 - row) : row;
+    return Offset(
+      padding + col * cellSize,
+      padding + displayRow * cellSize,
+    );
+  }
 
   void _drawBackground(Canvas canvas, Size size) {
     final bgRect = RRect.fromRectAndRadius(
@@ -335,7 +339,8 @@ class ChessBoardPainter extends CustomPainter {
     }
 
     for (int r = 0; r < 10; r++) {
-      final y = padding + r * cellSize;
+      final displayR = (playerSide == Side.black) ? (9 - r) : r;
+      final y = padding + displayR * cellSize;
       final tpLeft = TextPainter(
         text: TextSpan(text: '$r', style: coordStyle),
         textDirection: TextDirection.ltr,

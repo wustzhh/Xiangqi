@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── 棋盘尺寸 ─────────────────────────────────────
 /// 棋盘列数
@@ -67,9 +68,33 @@ const double pieceSelectedShadowOffset = 4.0;
 const double pieceSelectedShadowScale = 1.3;
 
 // ─── 网络对战服务器配置 ──────────────────────────
-abstract class ServerConfig {
-  static const String host = '212.129.243.158';
-  static const int port = 8080;
+/// 服务器地址（可在设置中修改，持久化保存）
+class ServerConfig {
+  static String host = '212.129.243.158';
+  static int port = 8080;
+
+  static const String _keyHost = 'server_host';
+  static const String _keyPort = 'server_port';
+
+  /// 从 SharedPreferences 加载已保存的服务器地址
+  static Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      host = prefs.getString(_keyHost) ?? host;
+      port = prefs.getInt(_keyPort) ?? port;
+    } catch (_) {}
+  }
+
+  /// 保存服务器地址到本地存储
+  static Future<void> save(String newHost, int newPort) async {
+    host = newHost;
+    port = newPort;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyHost, newHost);
+      await prefs.setInt(_keyPort, newPort);
+    } catch (_) {}
+  }
 }
 
 // ─── 音效路径 ────────────────────────────────────

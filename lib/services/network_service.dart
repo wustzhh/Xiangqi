@@ -141,8 +141,18 @@ class NetworkService extends ChangeNotifier {
     final type = data['type'] as String? ?? '';
 
     switch (type) {
+      case 'connected':
+        // 初始连接确认
+        if (data['playerId'] != null) {
+          playerId = data['playerId'] as String;
+        }
+        if (data['playerName'] != null) {
+          playerName = data['playerName'] as String;
+        }
+        break;
+
       case 'room_joined':
-        // 初始连接时收到的
+        // 加入房间时的响应（也可能携带 playerId/playerName 用于兼容）
         if (data['playerId'] != null) {
           playerId = data['playerId'] as String;
         }
@@ -163,6 +173,11 @@ class NetworkService extends ChangeNotifier {
       case 'room_list':
         final roomList = data['rooms'] as List<dynamic>? ?? [];
         rooms = roomList.map((r) => RoomInfo.fromJson(r as Map<String, dynamic>)).toList();
+        break;
+
+      case 'settings_updated':
+      case 'ready_changed':
+        // 直接转发给监听者处理
         break;
     }
 
@@ -212,6 +227,21 @@ class NetworkService extends ChangeNotifier {
   /// 认输
   void resign() {
     send({'type': 'resign'});
+  }
+
+  /// 更新房间设置
+  void updateSettings(Map<String, dynamic> settings) {
+    send({'type': 'update_settings', ...settings});
+  }
+
+  /// 切换准备状态
+  void toggleReady() {
+    send({'type': 'ready'});
+  }
+
+  /// 开始游戏（房主）
+  void startGame() {
+    send({'type': 'start_game'});
   }
 
   /// 更新玩家档案

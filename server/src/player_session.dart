@@ -1,7 +1,6 @@
 /// WebSocket 玩家连接会话管理
 library server.player_session;
 
-import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'protocol.dart';
@@ -10,30 +9,16 @@ import 'protocol.dart';
 class PlayerSession {
   final WebSocketChannel channel;
   final String id;          // 唯一 ID
+  final String deviceId;    // 设备 ID（用于重连识别）
   String name;              // 显示名称（可修改）
-  StreamSubscription? _subscription;
   String? roomId;           // 当前所在的房间 ID
-
-  /// 收到消息时的回调
-  void Function(String raw)? onMessage;
-  /// 连接关闭时的回调
-  void Function()? onDisconnect;
 
   PlayerSession({
     required this.channel,
     required this.id,
+    required this.deviceId,
     required this.name,
-  }) {
-    _subscription = channel.stream.listen(
-      (data) {
-        final raw = data is List<int> ? utf8.decode(data) : data.toString();
-        onMessage?.call(raw);
-      },
-      onDone: () => onDisconnect?.call(),
-      onError: (_) => onDisconnect?.call(),
-      cancelOnError: false,
-    );
-  }
+  });
 
   /// 发送 JSON 消息
   void send(String message) {
@@ -56,7 +41,6 @@ class PlayerSession {
 
   /// 断开连接
   void disconnect() {
-    _subscription?.cancel();
     try {
       channel.sink.close();
     } catch (_) {}

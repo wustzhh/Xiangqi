@@ -19,6 +19,8 @@ enum ClientMsgType {
   drawOffer('draw_offer'),
   drawResponse('draw_response'),
   ready('ready'),
+  updateSettings('update_settings'),
+  startGame('start_game'),
   updateProfile('update_profile'),
   unknown('');
 
@@ -35,6 +37,7 @@ enum ClientMsgType {
 
 /// 服务端→客户端 消息类型
 enum ServerMsgType {
+  connected('connected'),
   roomList('room_list'),
   roomCreated('room_created'),
   roomJoined('room_joined'),
@@ -46,6 +49,9 @@ enum ServerMsgType {
   chat('chat'),
   error('error'),
   roomUpdated('room_updated'),
+  settingsUpdated('settings_updated'),
+  readyChanged('ready_changed'),
+  gameCountdown('game_countdown'),
   profileUpdated('profile_updated'),
   unknown('');
 

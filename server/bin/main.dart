@@ -14,6 +14,7 @@ final RoomManager roomManager = RoomManager();
 final List<PlayerSession> _allSessions = [];
 /// 玩家档案存储 (id -> {name, avatar})
 final Map<String, Map<String, String?>> _profiles = {};
+int _nextConnId = 1;
 
 void main(List<String> args) async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ??
@@ -22,7 +23,7 @@ void main(List<String> args) async {
 
   roomManager.onRoomListChanged = _broadcastRoomListToAll;
 
-  final handler = webSocketHandler((WebSocketChannel channel) {
+  final handler = webSocketHandler((WebSocketChannel channel, String? protocol) {
     _handleConnection(channel);
   });
 
@@ -53,6 +54,7 @@ void _handleConnection(WebSocketChannel channel) {
           orElse: () => null,
         );
         if (session != null) {
+          print('[消息] ${session.name}: $raw');
           _handleMessage(session, raw);
         }
       }
@@ -76,8 +78,9 @@ void _setupSession(WebSocketChannel channel, String firstMessage) {
   // 从 client 消息中提取 deviceId
   final deviceId = parsed.data['deviceId'] as String?;
   if (deviceId != null && deviceId.isNotEmpty) {
-    playerId = deviceId.length > 16 ? deviceId.substring(0, 16) : deviceId;
-    playerName = '游客_${playerId.substring(0, 8)}';
+    // playerId 必须全局唯一（同一设备的多个连接不会冲突）
+    playerId = '${deviceId}_${_nextConnId++}';
+    playerName = '游客_${deviceId.substring(0, 8)}';
   } else {
     // 旧客户端兼容
     playerId = 'p${DateTime.now().millisecondsSinceEpoch}';
@@ -87,11 +90,9 @@ void _setupSession(WebSocketChannel channel, String firstMessage) {
   final session = PlayerSession(
     channel: channel,
     id: playerId,
+    deviceId: deviceId ?? '',
     name: playerName,
   );
-
-  session.onMessage = (raw) => _handleMessage(session, raw);
-  session.onDisconnect = () => _handleDisconnect(session);
 
   // 尝试重连
   final reconnected = roomManager.tryReconnect(session);
@@ -101,12 +102,7 @@ void _setupSession(WebSocketChannel channel, String firstMessage) {
   if (reconnected) {
     print('玩家重连成功: $playerName ($playerId)');
   } else {
-    session.send(buildServerMessage(ServerMsgType.roomJoined, {
-      'roomId': null,
-      'roomName': null,
-      'players': [],
-      'spectators': [],
-      'yourSide': null,
+    session.send(buildServerMessage(ServerMsgType.connected, {
       'playerId': playerId,
       'playerName': playerName,
     }));
@@ -114,8 +110,8 @@ void _setupSession(WebSocketChannel channel, String firstMessage) {
     print('玩家连接: $playerName ($playerId) — 当前在线: ${_allSessions.length}');
   }
 
-  // 如果第一条消息不是 device_id，当作正常消息处理
   if (parsed.type != ClientMsgType.unknown) {
+    print('[首次消息] ${session.name}: $firstMessage');
     _handleMessage(session, firstMessage);
   }
 }
@@ -151,6 +147,15 @@ void _handleMessage(PlayerSession session, String raw) {
       break;
     case ClientMsgType.resign:
       roomManager.handleResign(session);
+      break;
+    case ClientMsgType.updateSettings:
+      roomManager.handleUpdateSettings(session, parsed.data);
+      break;
+    case ClientMsgType.ready:
+      roomManager.handleReadyToggle(session);
+      break;
+    case ClientMsgType.startGame:
+      roomManager.handleStartGame(session);
       break;
     case ClientMsgType.updateProfile:
       _handleUpdateProfile(session, parsed.data);

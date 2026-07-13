@@ -46,9 +46,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void _onMessage(Map<String, dynamic> data) {
     final type = data['type'] as String?;
     if (type == 'room_created') {
-      _enterRoom(data['roomId'] as String);
+      // 创建者始终是红方
+      _enterRoom(data['roomId'] as String, initialSide: 'red');
     } else if (type == 'room_joined') {
-      _enterRoom(data['roomId'] as String);
+      final roomId = data['roomId'] as String?;
+      if (roomId != null) {
+        _enterRoom(
+          roomId,
+          initialSide: data['yourSide'] as String?,
+          gameAlreadyStarted: data['gameStarted'] == true,
+        );
+      }
     } else if (type == 'error') {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -61,12 +69,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
     if (mounted) setState(() {});
   }
 
-  void _enterRoom(String roomId) {
+  void _enterRoom(String roomId, {String? initialSide, bool gameAlreadyStarted = false}) {
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => RoomScreen(roomId: roomId),
+        builder: (_) => RoomScreen(
+          roomId: roomId,
+          initialSide: initialSide,
+          gameAlreadyStarted: gameAlreadyStarted,
+        ),
       ),
     ).then((_) {
       // 返回大厅后刷新房间列表

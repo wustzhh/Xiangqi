@@ -14,12 +14,17 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _deepSeekCtrl;
+  late TextEditingController _hostCtrl;
+  late TextEditingController _portCtrl;
   bool _loading = true;
+  bool _serverChanged = false;
 
   @override
   void initState() {
     super.initState();
     _deepSeekCtrl = TextEditingController();
+    _hostCtrl = TextEditingController(text: ServerConfig.host);
+    _portCtrl = TextEditingController(text: ServerConfig.port.toString());
     _loadKey();
   }
 
@@ -35,7 +40,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _deepSeekCtrl.dispose();
+    _hostCtrl.dispose();
+    _portCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveServerConfig() async {
+    final host = _hostCtrl.text.trim();
+    final portStr = _portCtrl.text.trim();
+    final port = int.tryParse(portStr);
+
+    if (host.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入服务器地址')),
+      );
+      return;
+    }
+    if (port == null || port < 1 || port > 65535) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请输入有效端口（1-65535）')),
+      );
+      return;
+    }
+
+    await ServerConfig.save(host, port);
+    setState(() => _serverChanged = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('服务器地址已保存为 $host:$port')),
+      );
+    }
   }
 
   @override
@@ -131,13 +165,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  enabled: false,
-                  decoration: const InputDecoration(
-                    hintText: '${ServerConfig.host}:${ServerConfig.port}（默认）',
-                    border: OutlineInputBorder(),
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: _hostCtrl,
+                        decoration: const InputDecoration(
+                          labelText: '服务器地址',
+                          hintText: 'IP 或域名',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => _serverChanged = true,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: TextField(
+                        controller: _portCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: '端口',
+                          hintText: '8080',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => _serverChanged = true,
+                      ),
+                    ),
+                  ],
                 ),
+                if (_serverChanged) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _saveServerConfig,
+                      icon: const Icon(Icons.save),
+                      label: const Text('保存服务器地址'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
 
                 // ── 安全说明 ──

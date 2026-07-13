@@ -4,6 +4,14 @@ library server.room;
 import 'protocol.dart';
 import 'player_session.dart';
 
+RoomParticipant? _findHost(List<RoomParticipant> participants, String hostId) {
+  try {
+    return participants.firstWhere((p) => p.id == hostId);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// 房间中的玩家角色
 enum PlayerRole { player, spectator }
 
@@ -11,7 +19,8 @@ enum PlayerRole { player, spectator }
 class RoomParticipant {
   final PlayerSession session;
   final PlayerRole role;
-  final String? side;   // 'red' | 'black' | null
+  String? side;   // 'red' | 'black' | null
+  bool ready = false;
 
   RoomParticipant({
     required this.session,
@@ -21,6 +30,28 @@ class RoomParticipant {
 
   String get id => session.id;
   String get name => session.name;
+}
+
+/// 房间设置
+class RoomSettings {
+  bool canUndo = true;
+  int timePerMove = 0;   // 步时（秒），0=不限
+  int totalTime = 0;     // 局时（分钟），0=不限
+  String sideChoice = 'host_red'; // host_red | host_black | random
+
+  Map<String, dynamic> toJson() => {
+    'canUndo': canUndo,
+    'timePerMove': timePerMove,
+    'totalTime': totalTime,
+    'sideChoice': sideChoice,
+  };
+
+  void apply(Map<String, dynamic> data) {
+    if (data.containsKey('canUndo')) canUndo = data['canUndo'] as bool;
+    if (data.containsKey('timePerMove')) timePerMove = data['timePerMove'] as int;
+    if (data.containsKey('totalTime')) totalTime = data['totalTime'] as int;
+    if (data.containsKey('sideChoice')) sideChoice = data['sideChoice'] as String;
+  }
 }
 
 /// 房间状态
@@ -33,6 +64,11 @@ class Room {
   final String hostId;
   final List<RoomParticipant> participants = [];
   RoomStatus status = RoomStatus.waiting;
+  RoomSettings settings = RoomSettings();
+
+  /// 是否双方都准备好了
+  bool get bothReady =>
+      players.length == 2 && players.every((p) => p.ready);
 
   Room({
     required this.id,
@@ -101,7 +137,8 @@ class Room {
     name: name,
     playerCount: players.length,
     spectatorCount: spectators.length,
-    hostName: participants.firstWhere((p) => p.id == hostId).name,
+    hostName: _findHost(participants, hostId)?.name ??
+        (participants.isNotEmpty ? participants.first.name : '已离开'),
     gameStarted: status != RoomStatus.waiting,
   );
 }

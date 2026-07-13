@@ -40,6 +40,7 @@ class RoomManager {
     host.sendMessage(ServerMsgType.roomCreated, {
       'roomId': roomId,
       'room': room.summary.toJson(),
+      'settings': room.settings.toJson(),
     });
 
     _broadcastRoomList();
@@ -84,7 +85,7 @@ class RoomManager {
     );
     room.addParticipant(participant);
 
-    // 通知加入者（含 gameStarted 标记）
+    // 通知加入者（含设置）
     final playersJson = room.players.map((p) => PlayerInfo(
       id: p.id, name: p.name, side: p.side,
     ).toJson()).toList();
@@ -92,14 +93,14 @@ class RoomManager {
       id: p.id, name: p.name, side: p.side,
     ).toJson()).toList();
 
-    final gameStarting = room.players.length == maxPlayersPerRoom;
+    print('[joinRoom] ${joiner.name} 加入 ${room.name}, 角色=${role.name} side=$side, 玩家数=${room.players.length}/$maxPlayersPerRoom');
     joiner.sendMessage(ServerMsgType.roomJoined, {
       'roomId': roomId,
       'roomName': room.name,
       'players': playersJson,
       'spectators': spectatorsJson,
       'yourSide': side,
-      if (gameStarting) 'gameStarted': true,
+      'settings': room.settings.toJson(),
     });
 
     // 通知房间里其他人
@@ -108,11 +109,6 @@ class RoomManager {
         'player': PlayerInfo(id: joiner.id, name: joiner.name, side: side).toJson(),
       },
     ));
-
-    // 如果凑齐了两个玩家，开始游戏
-    if (gameStarting) {
-      _startGame(room);
-    }
 
     _broadcastRoomList();
   }
@@ -204,6 +200,78 @@ class RoomManager {
     _endGame(room, winner, '认输');
   }
 
+  /// 处理设置更新
+  void handleUpdateSettings(PlayerSession session, Map<String, dynamic> data) {
+    final room = _rooms[session.roomId];
+    if (room == null || session.id != room.hostId) {
+      session.sendError('只有房主可以修改设置');
+      return;
+    }
+    if (room.status != RoomStatus.waiting) {
+      session.sendError('游戏已开始，无法修改设置');
+      return;
+    }
+    room.settings.apply(data);
+    room.broadcastMessage(ServerMsgType.settingsUpdated, {
+      'settings': room.settings.toJson(),
+    });
+  }
+
+  /// 处理准备/取消准备
+  void handleReadyToggle(PlayerSession session) {
+    final room = _rooms[session.roomId];
+    if (room == null) return;
+    final participant = room.getParticipant(session.id);
+    if (participant == null || participant.role != PlayerRole.player) return;
+    if (room.status != RoomStatus.waiting) return;
+
+    participant.ready = !participant.ready;
+    room.broadcastMessage(ServerMsgType.readyChanged, {
+      'playerId': session.id,
+      'ready': participant.ready,
+      'bothReady': room.bothReady,
+    });
+    print('[准备] ${session.name}: ready=${participant.ready}, bothReady=${room.bothReady}');
+  }
+
+  /// 处理开始游戏（房主点击）
+  void handleStartGame(PlayerSession session) {
+    final room = _rooms[session.roomId];
+    if (room == null || session.id != room.hostId) {
+      session.sendError('只有房主可以开始游戏');
+      return;
+    }
+    if (room.status != RoomStatus.waiting) {
+      session.sendError('游戏已开始');
+      return;
+    }
+    if (room.players.length < 2) {
+      session.sendError('玩家不足');
+      return;
+    }
+    if (!room.bothReady) {
+      session.sendError('双方都准备好后才能开始');
+      return;
+    }
+
+    // 根据 sideChoice 分配先后手
+    final players = room.players;
+    if (room.settings.sideChoice == 'random') {
+      // 随机分配
+      final redPlayer = players[0];
+      final blackPlayer = players[1];
+      if (DateTime.now().millisecondsSinceEpoch.isEven) {
+        redPlayer.side = 'red';
+        blackPlayer.side = 'black';
+      } else {
+        redPlayer.side = 'black';
+        blackPlayer.side = 'red';
+      }
+    } // host_red/host_black uses the sides already assigned in joinRoom
+
+    _startGame(room);
+  }
+
   // ═══════════════════════════════════════════
   //  断线重连
   // ═══════════════════════════════════════════
@@ -249,10 +317,20 @@ class RoomManager {
     );
   }
 
-  /// 重连（用旧的 session ID 恢复）
+  /// 重连（用 deviceId 恢复）
   bool tryReconnect(PlayerSession newSession) {
-    final old = _disconnected.remove(newSession.id);
-    if (old == null) return false;
+    // 查找断线玩家中 deviceId 匹配的
+    String? matchedId;
+    for (final entry in _disconnected.entries) {
+      if (entry.value.session.deviceId == newSession.deviceId &&
+          entry.value.session.id != newSession.id) {
+        matchedId = entry.key;
+        break;
+      }
+    }
+    if (matchedId == null) return false;
+
+    final old = _disconnected.remove(matchedId)!;
 
     old.timer.cancel(); // 取消超时计时器
 
@@ -307,20 +385,29 @@ class RoomManager {
     room.status = RoomStatus.playing;
 
     final players = room.players;
+    print('开始游戏: 房间 ${room.id}, 玩家数 ${players.length}');
     for (final p in players) {
-      p.session.sendMessage(ServerMsgType.gameStart, {
-        'yourSide': p.side,
-        'opponent': players.firstWhere((o) => o.id != p.id).name,
-        'roomId': room.id,
-      });
+      try {
+        final opponent = players.firstWhere((o) => o.id != p.id);
+        p.session.sendMessage(ServerMsgType.gameStart, {
+          'yourSide': p.side,
+          'opponent': opponent.name,
+          'roomId': room.id,
+        });
+        print('  已发送 game_start 给 ${p.name} (${p.id}) 对手=${opponent.name} side=${p.side}');
+      } catch (e) {
+        print('  ERROR: 发送 game_start 给 ${p.name} (${p.id}) 失败: $e');
+      }
     }
 
     for (final s in room.spectators) {
-      s.session.sendMessage(ServerMsgType.gameStart, {
-        'yourSide': null,
-        'opponent': null,
-        'roomId': room.id,
-      });
+      try {
+        s.session.sendMessage(ServerMsgType.gameStart, {
+          'yourSide': null,
+          'opponent': null,
+          'roomId': room.id,
+        });
+      } catch (_) {}
     }
   }
 
