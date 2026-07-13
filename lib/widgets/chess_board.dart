@@ -180,19 +180,28 @@ class ChessBoardPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // 底层：棋盘背景
     _drawBackground(canvas, size);
     _drawCoordinates(canvas);
     _drawGrid(canvas);
     _drawRiverText(canvas);
+
+    // 中层：走棋痕迹
     _drawLastMoveHighlight(canvas);
     _drawLastMoveArrow(canvas);
+
+    // 棋子层
     _drawValidMoveDots(canvas);
     _drawPieces(canvas);
-    _drawCrossingSwordsOnEnemies(canvas);
     _drawFriendlyShields(canvas);
     _drawAnimatingPiece(canvas);
     _drawSelection(canvas);
+
+    // 分析模式覆盖层（功能按钮1/2/3/4 的显示）
     _drawAnalysisOverlay(canvas);
+
+    // 最顶层：选中棋子时可吃的敌方对剑标记（不受分析模式干扰）
+    _drawCrossingSwordsOnEnemies(canvas);
   }
 
   @override
@@ -349,7 +358,6 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 画上一步的绿色箭头
   void _drawLastMoveArrow(Canvas canvas) {
     if (lastMove == null) return;
     final from = _cellPos(lastMove!.from.col, lastMove!.from.row);
@@ -404,7 +412,7 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 在可吃敌方棋子上面画交叉对剑（选中棋子时）
+  /// 最顶层：选中棋子时可吃的敌方→画红色对剑（不受分析模式遮挡）
   void _drawCrossingSwordsOnEnemies(Canvas canvas) {
     for (final pos in validMoves) {
       final target = board.at(pos);
@@ -414,7 +422,6 @@ class ChessBoardPainter extends CustomPainter {
       if (selectedPiece == null) continue;
       if (target.side == selectedPiece.side) continue;
       final center = _cellPos(pos.col, pos.row);
-      // 纯红色对剑，无背景圈
       _drawSwordsOnly(canvas, center);
     }
   }
@@ -617,6 +624,10 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
+  // ═══════════════════════════════════════
+  //  分析模式覆盖层（功能按钮 1/2/3/4）
+  // ═══════════════════════════════════════
+
   void _drawAnalysisOverlay(Canvas canvas) {
     if (analysisMode == AnalysisMode.none || analysisData == null) return;
     _drawSideBorders(canvas);
@@ -659,6 +670,7 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 功能按钮1 — 护子：大号数字 + 悬浮连线
   void _drawProtectionOverlay(Canvas canvas) {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
@@ -702,6 +714,7 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 功能按钮2 — 攻击：敌方攻击范围
   void _drawAttackOverlay(Canvas canvas) {
     Set<int>? selectedRange;
     if (analysisSelectedPos != null) {
@@ -733,6 +746,7 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 功能按钮3 — 安全：护+攻都为0的棋子不显示
   void _drawSafetyOverlay(Canvas canvas) {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
@@ -758,7 +772,9 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
-  /// 危险模式：用 X 标记 + 颜色深浅 + cnt>=3 纯红色对剑（无圈）
+  /// 功能按钮4 — 危险：对面棋子进攻性分析
+  ///  - 用 X 标记，颜色深浅表示危险程度
+  ///  - 当 (敌方攻击数 − 我方护子数) ≥ 3 时，用红色对剑表示高度危险
   void _drawDangerOverlay(Canvas canvas) {
     Set<int>? selectedRange;
     if (analysisSelectedPos != null) {
@@ -775,33 +791,31 @@ class ChessBoardPainter extends CustomPainter {
         final key = r * 9 + c;
         if (selectedRange != null && !selectedRange.contains(key)) continue;
 
-        final cnt = analysisData!.dangerScore[key] ?? 0;
-        if (cnt == 0) continue;
+        final dangerCnt = analysisData!.dangerScore[key] ?? 0;   // 敌方攻击数
+        if (dangerCnt == 0) continue;
+        final protCnt = analysisData!.protectionCount[key] ?? 0;  // 我方护子数
+        final netDanger = dangerCnt - protCnt;                    // 净危险度
         final center = _adjCenter(c, r);
-
         final isCannonMove = analysisData!.cannonMoveOnly.contains(key);
 
         if (isCannonMove) {
-          // 炮的移动位：黄色 X
+          // 炮的移动位：颜色 X
           final Color col;
-          if (cnt >= 4) col = const Color(0x55FF4444);
-          else if (cnt >= 2) col = const Color(0x55FF8844);
-          else col = const Color(0x55FFCC66);
-          _drawDangerX(canvas, center, col, cnt);
+          if (dangerCnt >= 4) col = const Color(0x88FF4444);
+          else if (dangerCnt >= 2) col = const Color(0x88FF8844);
+          else col = const Color(0x88FFCC66);
+          _drawDangerX(canvas, center, col, dangerCnt);
         } else {
-          // 红色系 X，cnt 越大颜色越深线越粗
-          if (cnt >= 3) {
-            // cnt>=3：纯红色对剑，无背景圈
+          // 普通危险位
+          if (netDanger >= 3) {
+            // 高度危险（净危险≥3）：纯红色对剑，无背景圈
             _drawSwordsOnly(canvas, center);
           } else {
-            final Color col;
-            if (cnt >= 6) col = const Color(0xCCFF2222);
-            else if (cnt == 5) col = const Color(0xCCFF4422);
-            else if (cnt == 4) col = const Color(0xCCFF6622);
-            else if (cnt == 3) col = const Color(0xCCFF8844);
-            else if (cnt == 2) col = const Color(0xCCFFAA66);
-            else col = const Color(0xCCFFCC88);
-            _drawDangerX(canvas, center, col, cnt);
+            // 一般危险：X 标记，颜色深浅表示程度
+            double opacity = 0.3 + (dangerCnt / 8.0).clamp(0.0, 0.7);
+            int alpha = (opacity * 255).round();
+            final Color col = Color.fromARGB(alpha, 255, 100, 100);
+            _drawDangerX(canvas, center, col, dangerCnt);
           }
         }
       }
