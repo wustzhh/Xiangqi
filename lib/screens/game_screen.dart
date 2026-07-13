@@ -301,11 +301,20 @@ class _GameScreenState extends State<GameScreen>
   void _undo() {
     if (_isAnimating || _aiThinking) return;
     // AI 模式：悔两步（玩家+AI）
+    int undoneCount = 0;
     for (int i = 0; i < (widget.isAiMode ? 2 : 1); i++) {
       final undone = _gameState.undoMove();
       if (undone == null) break;
+      undoneCount++;
     }
     _rules = Rules(_gameState.board);
+    // 同步移除棋盘快照
+    if (undoneCount > 0 && _boardSnapshots.length > undoneCount) {
+      _boardSnapshots.removeRange(
+        _boardSnapshots.length - undoneCount,
+        _boardSnapshots.length,
+      );
+    }
     setState(() {
       _selectedPos = null;
       _validMoves = [];
