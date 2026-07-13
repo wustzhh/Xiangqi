@@ -40,9 +40,9 @@ class _GameScreenState extends State<GameScreen>
 
   Position? _selectedPos;
   List<Position> _validMoves = [];
-  bool _showDebug = false;
   AnalysisMode _analysisMode = AnalysisMode.none;
   Position? _analysisSelectedPos;
+  bool _showMoveList = true;
 
   // 动画
   late AnimationController _animController;
@@ -330,6 +330,26 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  /// 显示调试面板（弹窗）
+  void _showDebugDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.85,
+          height: MediaQuery.of(context).size.height * 0.6,
+          child: DebugOverlay(gameState: _gameState),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 局面统计行
   Widget _buildStatsRow() {
     final stats = GameStats.compute(_gameState.board, _gameState.moveHistory);
@@ -411,16 +431,132 @@ class _GameScreenState extends State<GameScreen>
 
   @override
   Widget build(BuildContext context) {
-    // 走法列表（左）
-    final moveList = _gameState.moveCount > 0
-        ? SizedBox(
-            width: 148,
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('中国象棋'),
+        actions: [
+          IconButton(
+            icon: Icon(_showMoveList ? Icons.list : Icons.list_alt),
+            tooltip: '棋谱列表',
+            onPressed: () => setState(() => _showMoveList = !_showMoveList),
+          ),
+          IconButton(
+            icon: const Icon(Icons.bug_report_outlined),
+            tooltip: '调试面板',
+            onPressed: _showDebugDialog,
+          ),
+        ],
+      ),
+      body: _buildPortraitLayout(),
+    );
+  }
+
+  /// 竖屏布局
+  Widget _buildPortraitLayout() {
+    return Column(
+      children: [
+        // 棋盘区域（上部分，占主要空间）
+        Expanded(
+          child: Column(
+            children: [
+              GameInfoBar(
+                currentSide: _gameState.currentSide,
+                inCheck: _gameState.inCheck,
+                moveCount: _gameState.moveCount,
+              ),
+              _buildStatsRow(),
+              if (widget.isAiMode)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 2),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (_aiThinking)
+                        const SizedBox(width: 14, height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2)),
+                      if (_aiThinking) const SizedBox(width: 6),
+                      Text(
+                        _aiThinking
+                            ? 'AI 思考中... (${_aiPlayer?.difficultyName ?? ''})'
+                            : '${_aiPlayer?.difficultyName ?? ''} 模式',
+                        style: const TextStyle(fontSize: 13, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              // 棋盘填满剩余空间
+              Expanded(
+                child: Center(
+                  child: ChessBoard(
+                    board: _gameState.board,
+                    selectedPos: _selectedPos,
+                    validMoves: _validMoves,
+                    lastMove: _gameState.lastMove,
+                    animPiece: _animPiece,
+                    playerSide: widget.playerSide,
+                    analysisMode: _analysisMode,
+                    analysisData: _analysisMode != AnalysisMode.none
+                        ? AnalysisData.compute(_gameState.board)
+                        : null,
+                    analysisSelectedPos: _analysisMode != AnalysisMode.none
+                        ? _analysisSelectedPos
+                        : null,
+                    onCellTap: _onCellTap,
+                    onCellHover: _analysisMode != AnalysisMode.none
+                        ? (pos) {
+                            if (pos == null) {
+                              setState(() => _analysisSelectedPos = null);
+                              return;
+                            }
+                            final piece = _gameState.board.at(pos);
+                            if (_analysisMode == AnalysisMode.protection ||
+                                _analysisMode == AnalysisMode.safety) {
+                              if (piece != null &&
+                                  piece.side == _gameState.currentSide) {
+                                if (_analysisSelectedPos != pos)
+                                  setState(() => _analysisSelectedPos = pos);
+                              } else {
+                                if (_analysisSelectedPos != null)
+                                  setState(() => _analysisSelectedPos = null);
+                              }
+                            } else {
+                              final enemySide = _gameState.currentSide.opponent;
+                              if (piece != null && piece.side == enemySide) {
+                                if (_analysisSelectedPos != pos)
+                                  setState(() => _analysisSelectedPos = pos);
+                              } else {
+                                if (_analysisSelectedPos != null)
+                                  setState(() => _analysisSelectedPos = null);
+                              }
+                            }
+                          }
+                        : null,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        // 分析按钮行
+        _buildAnalysisButtons(),
+        // 操作按钮
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(icon: const Icon(Icons.undo), tooltip: '悔棋', onPressed: _undo),
+              const SizedBox(width: 16),
+              IconButton(icon: const Icon(Icons.refresh), tooltip: '重新开始', onPressed: _reset),
+            ],
+          ),
+        ),
+        // 棋谱列表（可折叠）
+        if (_showMoveList && _gameState.moveCount > 0)
+          SizedBox(
+            height: 130,
             child: Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.all(6),
-                  child: Text('棋谱', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                ),
                 const Divider(height: 1),
                 Expanded(
                   child: ListView.builder(
@@ -433,13 +569,15 @@ class _GameScreenState extends State<GameScreen>
                           ? _gameState.moveHistory[blackIdx]
                           : null;
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
                         child: Text.rich(
                           TextSpan(
                             children: [
                               TextSpan(
                                 text: '${i + 1}. ',
-                                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.grey),
                               ),
                               TextSpan(
                                 text: redMove.chineseNotation,
@@ -450,7 +588,8 @@ class _GameScreenState extends State<GameScreen>
                                 ),
                               ),
                               if (blackMove != null) ...[
-                                TextSpan(text: '  ', style: const TextStyle(fontSize: 10)),
+                                const TextSpan(
+                                    text: '  ', style: TextStyle(fontSize: 10)),
                                 TextSpan(
                                   text: blackMove.chineseNotation,
                                   style: TextStyle(
@@ -468,183 +607,37 @@ class _GameScreenState extends State<GameScreen>
                 ),
               ],
             ),
-          )
-        : const SizedBox(width: 0);
-
-    // 右侧功能按钮
-    final rightButtons = SizedBox(
-      width: 56,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _sideButton(Icons.shield, '护子', AnalysisMode.protection, Colors.green),
-          const SizedBox(height: 4),
-          _sideButton(Icons.gps_fixed, '攻击', AnalysisMode.attack, Colors.red),
-          const SizedBox(height: 4),
-          _sideButton(Icons.verified_user, '安全', AnalysisMode.safety, Colors.blue),
-          const SizedBox(height: 4),
-          _sideButton(Icons.warning, '危险', AnalysisMode.danger, Colors.orange),
-        ],
-      ),
-    );
-
-    // 中央棋盘区域
-    final boardArea = LayoutBuilder(
-      builder: (context, constraints) {
-        // 顶部固定内容高度（约 90px）
-        const headerHeight = 90.0;
-        // 底部按钮区域高度（约 60px）
-        const footerHeight = 60.0;
-        // 棋盘最大高度
-        final maxBoardHeight = constraints.maxHeight - headerHeight - footerHeight;
-
-        return Column(
-          children: [
-            GameInfoBar(
-              currentSide: _gameState.currentSide,
-              inCheck: _gameState.inCheck,
-              moveCount: _gameState.moveCount,
-            ),
-            _buildStatsRow(),
-            if (widget.isAiMode)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 2),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (_aiThinking) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                    if (_aiThinking) const SizedBox(width: 6),
-                    Text(
-                      _aiThinking ? 'AI 思考中... (${_aiPlayer?.difficultyName ?? ''})' : '${_aiPlayer?.difficultyName ?? ''} 模式',
-                      style: const TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxBoardHeight),
-                child: ChessBoard(
-                  board: _gameState.board,
-                  selectedPos: _selectedPos,
-                  validMoves: _validMoves,
-                  lastMove: _gameState.lastMove,
-                  animPiece: _animPiece,
-                  playerSide: widget.playerSide,
-                  analysisMode: _analysisMode,
-                  analysisData: _analysisMode != AnalysisMode.none ? AnalysisData.compute(_gameState.board) : null,
-                  analysisSelectedPos: _analysisMode != AnalysisMode.none ? _analysisSelectedPos : null,
-                  onCellTap: _onCellTap,
-                  onCellHover: _analysisMode != AnalysisMode.none
-                      ? (pos) {
-                          if (pos == null) {
-                            setState(() => _analysisSelectedPos = null);
-                            return;
-                          }
-                          final piece = _gameState.board.at(pos);
-                          if (_analysisMode == AnalysisMode.protection || _analysisMode == AnalysisMode.safety) {
-                            if (piece != null && piece.side == _gameState.currentSide) {
-                              if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
-                            } else {
-                              if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
-                            }
-                          } else {
-                            final enemySide = _gameState.currentSide.opponent;
-                            if (piece != null && piece.side == enemySide) {
-                              if (_analysisSelectedPos != pos) setState(() => _analysisSelectedPos = pos);
-                            } else {
-                              if (_analysisSelectedPos != null) setState(() => _analysisSelectedPos = null);
-                            }
-                          }
-                        }
-                      : null,
-                ),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+          ),
+        // 游戏结束提示
+        if (_gameState.result != GameResult.playing)
+          Padding(
+            padding: const EdgeInsets.all(4.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(icon: const Icon(Icons.undo), tooltip: '悔棋', onPressed: _undo),
-                const SizedBox(width: 16),
-                IconButton(icon: const Icon(Icons.refresh), tooltip: '重新开始', onPressed: _reset),
-                const SizedBox(width: 16),
-                IconButton(
-                  icon: Icon(_showDebug ? Icons.bug_report : Icons.bug_report_outlined),
-                  tooltip: '调试面板', onPressed: () => setState(() => _showDebug = !_showDebug),
+                Chip(
+                  label: Text(
+                    _gameState.result == GameResult.redWin ? '红方胜！' : '黑方胜！',
+                    style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white),
+                  ),
+                  backgroundColor: _gameState.result == GameResult.redWin
+                      ? Colors.red
+                      : Colors.black,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _gameState.inCheckmate
+                      ? '将杀'
+                      : (_gameState.inStalemate ? '困毙' : ''),
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
               ],
             ),
-            if (_gameState.result != GameResult.playing)
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Chip(
-                      label: Text(_gameState.result == GameResult.redWin ? '红方胜！' : '黑方胜！',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                      backgroundColor: _gameState.result == GameResult.redWin ? Colors.red : Colors.black,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(_gameState.inCheckmate ? '将杀' : (_gameState.inStalemate ? '困毙' : ''),
-                        style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                  ],
-                ),
-              ),
-          ],
-        );
-      },
-    );
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('中国象棋')),
-      body: Center(
-        child: _showDebug
-            ? Row(
-                children: [
-                  Expanded(child: boardArea),
-                  SizedBox(width: MediaQuery.of(context).size.width * 0.4, child: DebugOverlay(gameState: _gameState)),
-                ],
-              )
-            : Row(
-                children: [
-                  moveList,
-                  const VerticalDivider(width: 1),
-                  Expanded(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 600), child: boardArea)),
-                  if (_gameState.result == GameResult.playing) ...[
-                    const VerticalDivider(width: 1),
-                    rightButtons,
-                  ],
-                ],
-              ),
-      ),
-    );
-  }
-
-  Widget _sideButton(IconData icon, String label, AnalysisMode mode, Color color) {
-    final active = _analysisMode == mode;
-    return GestureDetector(
-      onTap: () => setState(() {
-        _analysisMode = active ? AnalysisMode.none : mode;
-        _analysisSelectedPos = null;
-      }),
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: active ? color.withValues(alpha: 0.2) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? color : Colors.grey.shade300, width: active ? 2 : 1),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 18, color: active ? color : Colors.grey),
-            Text(label, style: TextStyle(fontSize: 9, color: active ? color : Colors.grey)),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
 }
