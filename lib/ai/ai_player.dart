@@ -50,13 +50,13 @@ class AiPlayer {
       case AiDifficulty.easy: return 2;
       case AiDifficulty.medium: return 3;
       case AiDifficulty.hard: return 4;
-      case AiDifficulty.master: return 8;
-      case AiDifficulty.legend: return 10;
+      case AiDifficulty.master: return 6;
+      case AiDifficulty.legend: return 6;
     }
   }
 
   bool get _useIterative =>
-      difficulty == AiDifficulty.legend;  // 传说使用迭代加深，大师用固定深度
+      difficulty == AiDifficulty.master || difficulty == AiDifficulty.legend;
 
   void setDeepSeekKey(String key) {
     _deepSeek = DeepSeekClient(key);
@@ -135,7 +135,7 @@ class AiPlayer {
   Future<void> _startIsolateSearch(Board board) async {
     try {
       final int timeLimit = difficulty == AiDifficulty.legend
-          ? 60000
+          ? 40000
           : difficulty == AiDifficulty.master ? 30000
           : _timeLimitForDepth(_searchDepth);
 
