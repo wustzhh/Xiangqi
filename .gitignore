@@ -24,3 +24,8 @@ test/.cache
 # Agent/IDE configs
 reasonix.toml
 *.mcp.json
+
+# SDK/Android
+android_cmdline.zip
+*.local.properties
+*.gradle.properties.user
