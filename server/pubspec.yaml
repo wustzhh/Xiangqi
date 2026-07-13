@@ -1,0 +1,12 @@
+name: xiangqi_server
+description: 中国象棋 WebSocket 对战服务器
+version: 1.0.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  shelf: ^1.4.0
+  shelf_web_socket: ^2.0.0
+  web_socket_channel: ^3.0.0
+  uuid: ^4.0.0

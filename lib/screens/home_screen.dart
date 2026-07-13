@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'ai_settings_screen.dart';
 import 'game_screen.dart';
+import 'lobby_screen.dart';
 import 'records_screen.dart';
 import 'settings_screen.dart';
 
@@ -82,6 +83,23 @@ class HomeScreen extends StatelessWidget {
               },
               icon: const Icon(Icons.history),
               label: const Text('对局记录'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(220, 56),
+                textStyle: const TextStyle(fontSize: 18),
+              ),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const LobbyScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.wifi),
+              label: const Text('网络对战'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(220, 56),
                 textStyle: const TextStyle(fontSize: 18),
