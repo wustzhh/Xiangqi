@@ -373,8 +373,12 @@ class _GameScreenState extends State<GameScreen>
 
   /// 显示历史走法查看弹窗
   void _showMoveDialog(int moveIndex, Move move) {
-    // 获取当时的棋盘快照
-    final boardAtMove = _boardSnapshots[moveIndex];
+    // 从初始棋盘回放到第 moveIndex 步，确保与 moveHistory 严格一致
+    final replayBoard = Board.initial();
+    for (int i = 0; i < moveIndex; i++) {
+      final m = _gameState.moveHistory[i];
+      replayBoard.move(m.from, m.to);
+    }
     final isRed = move.piece.side == Side.red;
 
     showDialog(
@@ -430,7 +434,7 @@ class _GameScreenState extends State<GameScreen>
               // 棋盘
               Expanded(
                 child: ChessBoard(
-                  board: boardAtMove,
+                  board: replayBoard,
                   lastMove: move,
                   animPiece: null,
                   selectedPos: null,
