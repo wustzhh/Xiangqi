@@ -640,15 +640,16 @@ class _GameScreenState extends State<GameScreen>
             ],
           ),
         ),
-        // 棋谱列表（每步独立一行 + 查看按钮）
-        if (_showMoveList && _gameState.moveCount > 0)
+        // 棋谱列表（每步独立一行 + 查看按钮，开局即显示）
+        if (_showMoveList)
           SizedBox(
             height: 130,
             child: Column(
               children: [
                 const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
+                if (_gameState.moveCount > 0)
+                  Expanded(
+                    child: ListView.builder(
                     itemCount: _gameState.moveCount,
                     itemBuilder: (context, i) {
                       final move = _gameState.moveHistory[i];
