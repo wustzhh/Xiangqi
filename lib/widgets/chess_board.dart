@@ -73,7 +73,6 @@ class _ChessBoardState extends State<ChessBoard> {
     _bgLoadingAttempted = true;
     try {
       final imageProvider = const AssetImage('assets/images/board_wood.png');
-      // 先检查缓存，如果已预加载则同步获取
       final config = createLocalImageConfiguration(context);
       final stream = imageProvider.resolve(config);
       final completer = Completer<ui.Image>();
@@ -81,13 +80,10 @@ class _ChessBoardState extends State<ChessBoard> {
         if (!completer.isCompleted) completer.complete(info.image);
       });
       stream.addListener(listener);
-      // 如果已缓存，listener 可能在微任务中同步触发
       final image = await completer.future;
       stream.removeListener(listener);
       if (mounted) setState(() => _bgImage = image);
-    } catch (_) {
-      // 图片加载失败时静默使用渐变色背景
-    }
+    } catch (_) {}
   }
 
   Position? _toBoardPos(Offset point) {
@@ -142,9 +138,9 @@ class _ChessBoardState extends State<ChessBoard> {
                 bgImage: _bgImage,
                 cellSize: _cellSize,
                 padding: boardPadding,
-              ),  // ChessBoardPainter
-            ),  // CustomPaint
-          ),  // GestureDetector
+              ),
+            ),
+          ),
           ),
         );
       },
@@ -189,13 +185,12 @@ class ChessBoardPainter extends CustomPainter {
     _drawGrid(canvas);
     _drawRiverText(canvas);
     _drawLastMoveHighlight(canvas);
+    _drawLastMoveArrow(canvas);
     _drawValidMoveDots(canvas);
     _drawPieces(canvas);
-    _drawCrossingSwordsOnEnemies(canvas);
     _drawFriendlyShields(canvas);
     _drawAnimatingPiece(canvas);
     _drawSelection(canvas);
-    // 分析模式覆盖层（最后画，在最上层）
     _drawAnalysisOverlay(canvas);
   }
 
@@ -307,7 +302,6 @@ class ChessBoardPainter extends CustomPainter {
     tp2.paint(canvas, Offset(rightX, midY - tp2.height / 2));
   }
 
-  /// 画行列坐标标注
   void _drawCoordinates(Canvas canvas) {
     final coordStyle = TextStyle(
       color: const Color(0xFF5D3A1A),
@@ -315,17 +309,14 @@ class ChessBoardPainter extends CustomPainter {
       fontWeight: FontWeight.normal,
     );
 
-    // 列坐标（上下两行，在 padding 区域内）
     for (int c = 0; c < 9; c++) {
       final x = padding + c * cellSize;
-      // 上方
       final tpTop = TextPainter(
         text: TextSpan(text: '$c', style: coordStyle),
         textDirection: TextDirection.ltr,
       )..layout();
       tpTop.paint(canvas, Offset(x - tpTop.width / 2, padding * 0.3));
 
-      // 下方
       final tpBottom = TextPainter(
         text: TextSpan(text: '$c', style: coordStyle),
         textDirection: TextDirection.ltr,
@@ -333,17 +324,14 @@ class ChessBoardPainter extends CustomPainter {
       tpBottom.paint(canvas, Offset(x - tpBottom.width / 2, padding + 9 * cellSize + padding * 0.2));
     }
 
-    // 行坐标（左右两列，在 padding 区域内）
     for (int r = 0; r < 10; r++) {
       final y = padding + r * cellSize;
-      // 左侧
       final tpLeft = TextPainter(
         text: TextSpan(text: '$r', style: coordStyle),
         textDirection: TextDirection.ltr,
       )..layout();
       tpLeft.paint(canvas, Offset(padding * 0.2, y - tpLeft.height / 2));
 
-      // 右侧
       final tpRight = TextPainter(
         text: TextSpan(text: '$r', style: coordStyle),
         textDirection: TextDirection.ltr,
@@ -360,113 +348,68 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 画空位可走绿点（在棋子下方）
+  /// 画上一步的绿色箭头
+  void _drawLastMoveArrow(Canvas canvas) {
+    if (lastMove == null) return;
+    final from = _cellPos(lastMove!.from.col, lastMove!.from.row);
+    final to = _cellPos(lastMove!.to.col, lastMove!.to.row);
+    if (from == to) return;
+
+    final dir = (to - from);
+    final dist = dir.distance;
+    final unit = Offset(dir.dx / dist, dir.dy / dist);
+
+    // 缩短起点和终点免得盖住棋子
+    final startOffset = unit * cellSize * 0.4;
+    final endOffset = unit * cellSize * 0.4;
+    final arrowStart = from + startOffset;
+    final arrowEnd = to - endOffset;
+
+    // 箭头线
+    final arrowPaint = Paint()
+      ..color = const Color(0xCC33CC33)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(arrowStart, arrowEnd, arrowPaint);
+
+    // 箭头头部三角
+    final arrowSize = cellSize * 0.22;
+    final angle = atan2(dir.dy, dir.dx);
+    final tip = arrowEnd;
+    final left = Offset(
+      tip.dx - arrowSize * cos(angle - pi / 6),
+      tip.dy - arrowSize * sin(angle - pi / 6),
+    );
+    final right = Offset(
+      tip.dx - arrowSize * cos(angle + pi / 6),
+      tip.dy - arrowSize * sin(angle + pi / 6),
+    );
+
+    final headPaint = Paint()
+      ..color = const Color(0xCC33CC33)
+      ..style = PaintingStyle.fill;
+    final headPath = Path()
+      ..moveTo(tip.dx, tip.dy)
+      ..lineTo(left.dx, left.dy)
+      ..lineTo(right.dx, right.dy)
+      ..close();
+    canvas.drawPath(headPath, headPaint);
+  }
+
   void _drawValidMoveDots(Canvas canvas) {
     for (final pos in validMoves) {
       final target = board.at(pos);
-      if (target != null) continue; // 只画空位
+      if (target != null) continue;
       final center = _cellPos(pos.col, pos.row);
       canvas.drawCircle(center, cellSize * 0.15, Paint()..color = AppColors.validMoveHint);
     }
   }
 
-  /// 在敌方棋子上面画交叉对剑
-  void _drawCrossingSwordsOnEnemies(Canvas canvas) {
-    for (final pos in validMoves) {
-      final target = board.at(pos);
-      if (target == null) continue;
-      if (selectedPos == null) continue;
-      final selectedPiece = board.at(selectedPos!);
-      if (selectedPiece == null) continue;
-      if (target.side == selectedPiece.side) continue; // 自己人跳过
-      final center = _cellPos(pos.col, pos.row);
-      _drawCrossingSwords(canvas, center);
-    }
-  }
-
-  /// 可吃敌方：红色交叉对剑（画在棋子上面）
-  void _drawCrossingSwords(Canvas canvas, Offset center) {
-    final len = cellSize * 0.75;
-    final halfLen = len / 2;
-    final bladeW = cellSize * 0.045;
-    final guardW = cellSize * 0.06;
-    final guardHalf = cellSize * 0.16;
-
-    // 红色半透明底圈
-    final bgPaint = Paint()
-      ..color = const Color(0x33FF3333)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, cellSize * 0.48, bgPaint);
-
-    // 红色外圈
-    final ringPaint = Paint()
-      ..color = const Color(0xCCFF3333)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-    canvas.drawCircle(center, cellSize * 0.46, ringPaint);
-
-    void drawSword(double angle) {
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate(angle);
-
-      // 剑刃
-      final bladePaint = Paint()
-        ..color = const Color(0xCCDD2222)
-        ..style = PaintingStyle.fill;
-      final bladePath = Path()
-        ..moveTo(0, -halfLen)
-        ..lineTo(-bladeW, -cellSize * 0.1)
-        ..lineTo(bladeW, -cellSize * 0.1)
-        ..close();
-      canvas.drawPath(bladePath, bladePaint);
-
-      // 剑刃高光
-      final hlPaint = Paint()
-        ..color = const Color(0xCCFF8888)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2;
-      canvas.drawLine(Offset(0, -halfLen), Offset(0, -cellSize * 0.1), hlPaint);
-
-      // 护手
-      final guardPaint = Paint()
-        ..color = const Color(0xCCDD2222)
-        ..style = PaintingStyle.fill;
-      canvas.drawRect(
-        Rect.fromCenter(center: Offset(0, 0), width: guardHalf * 2, height: guardW * 2),
-        guardPaint,
-      );
-
-      // 剑柄
-      final hiltPaint = Paint()
-        ..color = const Color(0xCC5D3A1A)
-        ..style = PaintingStyle.fill;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(0, halfLen * 0.6),
-            width: bladeW * 2.5,
-            height: halfLen * 0.6,
-          ),
-          const Radius.circular(2),
-        ),
-        hiltPaint,
-      );
-
-      canvas.restore();
-    }
-
-    drawSword(-0.75);
-    drawSword(0.75);
-  }
-
-  /// 被选中棋子护住的友军：绿色盾牌（画在棋子上面）
   void _drawFriendlyShields(Canvas canvas) {
     if (selectedPos == null) return;
     final selectedPiece = board.at(selectedPos!);
     if (selectedPiece == null) return;
-
-    // 计算选中棋子护住的友军位置
     final rules = Rules(board);
     final protectedPositions = rules.getProtectedFriendlies(selectedPos!);
     if (protectedPositions.isEmpty) return;
@@ -482,12 +425,10 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 画盾牌（居中绿色盾形，无背景）
   void _drawShield(Canvas canvas, Offset center, Paint paint) {
     final w = cellSize * 0.22;
     final h = cellSize * 0.26;
 
-    // 盾形路径
     final shieldPath = Path()
       ..moveTo(center.dx - w, center.dy - h * 0.15)
       ..quadraticBezierTo(center.dx - w, center.dy - h, center.dx, center.dy - h)
@@ -497,13 +438,10 @@ class ChessBoardPainter extends CustomPainter {
       ..lineTo(center.dx - w, center.dy + h * 0.3)
       ..close();
 
-    // 边框
     canvas.drawPath(shieldPath, paint);
-    // 半透明填充
     canvas.drawPath(shieldPath, Paint()
       ..color = const Color(0x2233BB33)
       ..style = PaintingStyle.fill);
-    // 十字装饰
     final linePaint = Paint()
       ..color = const Color(0x9933BB33)
       ..style = PaintingStyle.stroke
@@ -518,9 +456,7 @@ class ChessBoardPainter extends CustomPainter {
         final pos = Position(c, r);
         final piece = board.at(pos);
         if (piece == null) continue;
-        // 跳过正在动画的起始位置
         if (animPiece != null && animPiece!.from == pos && animPiece!.progress < 1.0) continue;
-        // 选中的棋子由 _drawSelection 绘制（带抬起效果）
         if (pos == selectedPos) continue;
         _drawPiece(canvas, _cellPos(c, r), piece, false);
       }
@@ -533,11 +469,8 @@ class ChessBoardPainter extends CustomPainter {
     final from = _cellPos(ap.from.col, ap.from.row);
     final to = _cellPos(ap.to.col, ap.to.row);
     final t = Curves.easeInOut.transform(ap.progress);
-
-    // 抛物线弧线：中间最高
     final arcHeight = cellSize * 0.3;
     final arcOffset = Offset(0, -arcHeight * sin(pi * ap.progress));
-
     final center = Offset.lerp(from, to, t)! + arcOffset;
     _drawPiece(canvas, center, ap.piece, false);
   }
@@ -546,25 +479,21 @@ class ChessBoardPainter extends CustomPainter {
     final radius = cellSize * 0.44;
 
     if (selected) {
-      // ── 选中状态：棋子抬起 + 大阴影 ──
       final liftOffset = Offset(0, -cellSize * pieceLiftScale);
       final liftedCenter = center + liftOffset;
 
-      // 大阴影（抬升后更远更深）
       final shadowRadius = radius * pieceSelectedShadowScale;
       canvas.drawCircle(
         center + Offset(pieceSelectedShadowOffset, pieceSelectedShadowOffset),
         shadowRadius,
         Paint()..color = const Color(0x80000000),
       );
-      // 第二层阴影（边缘柔化）
       canvas.drawCircle(
         center + Offset(pieceSelectedShadowOffset + 1, pieceSelectedShadowOffset + 1),
         shadowRadius * 0.7,
         Paint()..color = const Color(0x40000000),
       );
 
-      // 棋子上浮后的身体
       final bodyRect = Rect.fromCircle(center: liftedCenter, radius: radius);
       final bodyPaint = Paint()
         ..shader = RadialGradient(
@@ -574,19 +503,16 @@ class ChessBoardPainter extends CustomPainter {
         ).createShader(bodyRect);
       canvas.drawCircle(liftedCenter, radius, bodyPaint);
 
-      // 边框：更粗更亮
       canvas.drawCircle(liftedCenter, radius, Paint()
         ..color = AppColors.pieceBorder
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3.0);
 
-      // 选中光环（金色外圈）
       canvas.drawCircle(liftedCenter, radius + 3, Paint()
         ..color = AppColors.selectedHighlight
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3);
 
-      // 内圈装饰
       canvas.drawCircle(liftedCenter, radius * 0.88, Paint()
         ..color = AppColors.pieceBorder
         ..style = PaintingStyle.stroke
@@ -594,11 +520,8 @@ class ChessBoardPainter extends CustomPainter {
 
       _drawPieceText(canvas, liftedCenter, piece, radius);
     } else {
-      // ── 普通状态 ──
-      // 小阴影
       canvas.drawCircle(center + const Offset(2, 2), radius, Paint()..color = AppColors.pieceShadow);
 
-      // 棋子身体
       final bodyRect = Rect.fromCircle(center: center, radius: radius);
       final bodyPaint = Paint()
         ..shader = RadialGradient(
@@ -608,13 +531,11 @@ class ChessBoardPainter extends CustomPainter {
         ).createShader(bodyRect);
       canvas.drawCircle(center, radius, bodyPaint);
 
-      // 边框
       canvas.drawCircle(center, radius, Paint()
         ..color = AppColors.pieceBorder
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5);
 
-      // 内圈
       canvas.drawCircle(center, radius * 0.88, Paint()
         ..color = AppColors.pieceBorder
         ..style = PaintingStyle.stroke
@@ -650,10 +571,8 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 分析模式覆盖层
   void _drawAnalysisOverlay(Canvas canvas) {
     if (analysisMode == AnalysisMode.none || analysisData == null) return;
-    // 先画敌我边框
     _drawSideBorders(canvas);
     switch (analysisMode) {
       case AnalysisMode.protection:
@@ -668,7 +587,6 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 单元格中心（考虑选中棋子抬起偏移）
   Offset _adjCenter(int col, int row) {
     final center = _cellPos(col, row);
     if (selectedPos != null && selectedPos!.col == col && selectedPos!.row == row) {
@@ -677,7 +595,6 @@ class ChessBoardPainter extends CustomPainter {
     return center;
   }
 
-  /// 敌我边框：己方绿框，敌方红框
   void _drawSideBorders(Canvas canvas) {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
@@ -696,6 +613,7 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 护子模式：大字体显示数量 + 悬浮时用绿色连线标记保护者
   void _drawProtectionOverlay(Canvas canvas) {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
@@ -705,24 +623,38 @@ class ChessBoardPainter extends CustomPainter {
         final cnt = analysisData!.protectionCount[key] ?? 0;
         final center = _adjCenter(c, r);
         if (cnt > 0) {
+          // 大号白色数字 + 绿色背景圈
+          final bgCircle = Paint()..color = const Color(0xAA22BB22);
+          canvas.drawCircle(Offset(center.dx, center.dy + cellSize * 0.28), cellSize * 0.18, bgCircle);
           final tp = TextPainter(
             text: TextSpan(text: '$cnt', style: TextStyle(
-              color: const Color(0xFF22BB22), fontSize: cellSize * 0.22, fontWeight: FontWeight.bold,
+              color: Colors.white, fontSize: cellSize * 0.3, fontWeight: FontWeight.w900,
             )),
             textDirection: TextDirection.ltr,
           )..layout();
-          tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy + cellSize * 0.30));
+          tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy + cellSize * 0.28 - tp.height / 2));
         }
+        // 悬浮选中棋子：画连接线到保护者
         if (analysisSelectedPos != null &&
             analysisSelectedPos!.col == c && analysisSelectedPos!.row == r) {
           final prot = analysisData!.protectors[key];
           if (prot != null) {
             for (final pos in prot) {
               final pc = _cellPos(pos.col, pos.row);
-              canvas.drawCircle(pc, cellSize * 0.20, Paint()..color = const Color(0xFF33BB33)..style = PaintingStyle.stroke..strokeWidth = 2);
-              canvas.drawCircle(pc + Offset(cellSize * 0.06, 0), cellSize * 0.12, Paint()..color = const Color(0xFF33BB33)..style = PaintingStyle.stroke..strokeWidth = 2);
-              canvas.drawCircle(pc - Offset(cellSize * 0.06, 0), cellSize * 0.12, Paint()..color = const Color(0xFF33BB33)..style = PaintingStyle.stroke..strokeWidth = 2);
-              canvas.drawLine(pc - Offset(0, cellSize * 0.12), pc + Offset(0, cellSize * 0.12), Paint()..color = const Color(0xFF33BB33)..style = PaintingStyle.stroke..strokeWidth = 2);
+              // 绿色连接线
+              final connPaint = Paint()
+                ..color = const Color(0xAA33BB33)
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 2.0;
+              canvas.drawLine(pc, center, connPaint);
+              // 保护者高亮大绿圈
+              canvas.drawCircle(pc, cellSize * 0.25, Paint()
+                ..color = const Color(0x8033BB33)
+                ..style = PaintingStyle.fill);
+              canvas.drawCircle(pc, cellSize * 0.25, Paint()
+                ..color = const Color(0xFF33BB33)
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 2.5);
             }
           }
         }
@@ -730,7 +662,6 @@ class ChessBoardPainter extends CustomPainter {
   }
 
   void _drawAttackOverlay(Canvas canvas) {
-    // 如果选中了棋子，计算其攻击范围
     Set<int>? selectedRange;
     if (analysisSelectedPos != null) {
       final selPiece = board.at(analysisSelectedPos!);
@@ -745,10 +676,7 @@ class ChessBoardPainter extends CustomPainter {
       for (int c = 0; c < 9; c++) {
         final key = r * 9 + c;
         final pos = Position(c, r);
-
-        // 如果选中了棋子，只显示该子攻击范围内的位置
         if (selectedRange != null && !selectedRange.contains(key)) continue;
-
         final piece = board.at(pos);
         final cnt = analysisData!.attackCount[key] ?? 0;
         if (cnt == 0) continue;
@@ -764,12 +692,18 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 安全模式：护+攻都为0的棋子不显示圆圈
   void _drawSafetyOverlay(Canvas canvas) {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
         final p = board.at(Position(c, r));
         if (p == null) continue;
         final key = r * 9 + c;
+        // 护和攻都为0 → 无人关心，不显示
+        final protCnt = analysisData!.protectionCount[key] ?? 0;
+        final atkCnt = analysisData!.attackCount[key] ?? 0;
+        if (protCnt == 0 && atkCnt == 0) continue;
+
         int sc = analysisData!.safetyScore[key] ?? 0;
         final bool isFriendly = p.side == playerSide;
         if (!isFriendly) sc = -sc;
@@ -785,8 +719,8 @@ class ChessBoardPainter extends CustomPainter {
       }
   }
 
+  /// 危险模式：X 标记 + 颜色深浅 + 高度危险时红色对剑
   void _drawDangerOverlay(Canvas canvas) {
-    // 如果选中了敌方棋子，计算其攻击范围
     Set<int>? selectedRange;
     if (analysisSelectedPos != null) {
       final selPiece = board.at(analysisSelectedPos!);
@@ -800,34 +734,89 @@ class ChessBoardPainter extends CustomPainter {
     for (int r = 0; r < 10; r++)
       for (int c = 0; c < 9; c++) {
         final key = r * 9 + c;
-
-        // 如果选中了棋子，只显示该子攻击范围内的位置
         if (selectedRange != null && !selectedRange.contains(key)) continue;
 
         final cnt = analysisData!.dangerScore[key] ?? 0;
         if (cnt == 0) continue;
         final center = _adjCenter(c, r);
 
-        // 炮的移动位用黄色
+        // 计算危险程度：考虑保护抵消
+        final protCnt = analysisData!.protectionCount[key] ?? 0;
+        final netDanger = cnt - protCnt;
+
         final isCannonMove = analysisData!.cannonMoveOnly.contains(key);
 
-        final Color col;
         if (isCannonMove) {
-          // 炮只能移动的位置：黄色系
-          if (cnt >= 4) col = const Color(0x55DDAA22);
-          else if (cnt >= 2) col = const Color(0x55DDCC44);
-          else col = const Color(0x55DDEE66);
+          // 炮的移动位：黄色 X
+          if (cnt >= 4) _drawDangerX(canvas, center, const Color(0x55DDAA22), cnt);
+          else if (cnt >= 2) _drawDangerX(canvas, center, const Color(0x55DDCC44), cnt);
+          else _drawDangerX(canvas, center, const Color(0x55DDEE66), cnt);
         } else {
-          // 正常危险位：红色系
-          if (cnt >= 6) col = const Color(0x55FF2222);
-          else if (cnt == 5) col = const Color(0x55FF4422);
-          else if (cnt == 4) col = const Color(0x55FF6622);
-          else if (cnt == 3) col = const Color(0x55FF8844);
-          else if (cnt == 2) col = const Color(0x55FFAA66);
-          else if (cnt == 1) col = const Color(0x55FFCC88);
-          else continue;
+          // 红色系 X
+          if (netDanger >= 3) {
+            // 高度危险：红色对剑
+            _drawCrossingSwords(canvas, center);
+          } else if (cnt >= 6) _drawDangerX(canvas, center, const Color(0x55FF2222), cnt);
+          else if (cnt == 5) _drawDangerX(canvas, center, const Color(0x55FF4422), cnt);
+          else if (cnt == 4) _drawDangerX(canvas, center, const Color(0x55FF6622), cnt);
+          else if (cnt == 3) _drawDangerX(canvas, center, const Color(0x55FF8844), cnt);
+          else if (cnt == 2) _drawDangerX(canvas, center, const Color(0x55FFAA66), cnt);
+          else if (cnt == 1) _drawDangerX(canvas, center, const Color(0x55FFCC88), cnt);
         }
-        canvas.drawRect(Rect.fromCenter(center: center, width: cellSize * 0.9, height: cellSize * 0.9), Paint()..color = col);
       }
+  }
+
+  /// 画 X 标记
+  void _drawDangerX(Canvas canvas, Offset center, Color color, int intensity) {
+    final d = cellSize * 0.12 + (intensity * 0.01 * cellSize).clamp(0.0, cellSize * 0.06);
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0 + (intensity * 0.15).clamp(0.0, 2.0);
+    canvas.drawLine(center - Offset(d, d), center + Offset(d, d), paint);
+    canvas.drawLine(center - Offset(d, -d), center + Offset(d, -d), paint);
+  }
+
+  void _drawCrossingSwords(Canvas canvas, Offset center) {
+    final len = cellSize * 0.75;
+    final halfLen = len / 2;
+    final bladeW = cellSize * 0.045;
+
+    final bgPaint = Paint()
+      ..color = const Color(0x44FF3333)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, cellSize * 0.48, bgPaint);
+
+    final ringPaint = Paint()
+      ..color = const Color(0xCCFF3333)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawCircle(center, cellSize * 0.46, ringPaint);
+
+    void drawSword(double angle) {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(angle);
+
+      final bladePaint = Paint()
+        ..color = const Color(0xCCDD2222)
+        ..style = PaintingStyle.fill;
+      final bladePath = Path()
+        ..moveTo(0, -halfLen)
+        ..lineTo(-bladeW, -cellSize * 0.1)
+        ..lineTo(bladeW, -cellSize * 0.1)
+        ..close();
+      canvas.drawPath(bladePath, bladePaint);
+
+      final hiltPaint = Paint()
+        ..color = const Color(0xCC884400)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(Rect.fromCenter(center: Offset(0, cellSize * 0.06), width: bladeW * 3, height: cellSize * 0.08), hiltPaint);
+
+      canvas.restore();
+    }
+
+    drawSword(-0.75);
+    drawSword(0.75);
   }
 }

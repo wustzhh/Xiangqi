@@ -3,6 +3,7 @@ import '../ai/ai_player.dart';
 import '../ai/search.dart';
 import '../engine/board.dart';
 import '../engine/game_state.dart';
+import '../engine/move.dart';
 import '../engine/piece.dart';
 import '../engine/rules.dart';
 import '../utils/constants.dart';
@@ -43,6 +44,8 @@ class _GameScreenState extends State<GameScreen>
   AnalysisMode _analysisMode = AnalysisMode.none;
   Position? _analysisSelectedPos;
   bool _showMoveList = true;
+  /// 每步后的棋盘快照（用于查看历史走法）
+  final List<Board> _boardSnapshots = [];
 
   // 动画
   late AnimationController _animController;
@@ -56,6 +59,7 @@ class _GameScreenState extends State<GameScreen>
     super.initState();
     _gameState = GameState();
     _rules = Rules(_gameState.board);
+    _boardSnapshots.add(_gameState.board.copy());
 
     if (widget.isAiMode) {
       _aiPlayer = AiPlayer(
@@ -114,6 +118,7 @@ class _GameScreenState extends State<GameScreen>
 
     _gameState.applyMove(_pendingFrom!, _pendingTo!);
     _rules = Rules(_gameState.board);
+    _boardSnapshots.add(_gameState.board.copy());
     final endReason = _checkGameEnd();
 
     setState(() {
@@ -322,6 +327,8 @@ class _GameScreenState extends State<GameScreen>
       _aiThinking = false;
       _analysisMode = AnalysisMode.none;
       _analysisSelectedPos = null;
+      _boardSnapshots.clear();
+      _boardSnapshots.add(Board.initial());
     });
     if (widget.isAiMode && widget.playerSide == Side.black) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -343,6 +350,88 @@ class _GameScreenState extends State<GameScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 显示历史走法查看弹窗
+  void _showMoveDialog(int moveIndex, Move move) {
+    // 获取当时的棋盘快照
+    final boardAtMove = _boardSnapshots[moveIndex];
+    final isRed = move.piece.side == Side.red;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Text('第${moveIndex + 1}步', style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: isRed ? Colors.red.shade100 : Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '${isRed ? "红" : "黑"} ${move.piece.displayName}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: isRed ? Colors.red.shade700 : Colors.grey.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 360,
+          height: 420,
+          child: Column(
+            children: [
+              // 走法描述
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.arrow_forward, size: 16, color: Colors.amber),
+                    const SizedBox(width: 4),
+                    Text(
+                      move.chineseNotation,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              // 棋盘
+              Expanded(
+                child: ChessBoard(
+                  board: boardAtMove,
+                  lastMove: move,
+                  animPiece: null,
+                  selectedPos: null,
+                  validMoves: const [],
+                  playerSide: widget.playerSide,
+                  analysisMode: AnalysisMode.none,
+                  onCellTap: (_) {},
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('关闭'),
           ),
         ],
@@ -551,7 +640,7 @@ class _GameScreenState extends State<GameScreen>
             ],
           ),
         ),
-        // 棋谱列表（可折叠）
+        // 棋谱列表（每步独立一行 + 查看按钮）
         if (_showMoveList && _gameState.moveCount > 0)
           SizedBox(
             height: 130,
@@ -560,44 +649,61 @@ class _GameScreenState extends State<GameScreen>
                 const Divider(height: 1),
                 Expanded(
                   child: ListView.builder(
-                    itemCount: (_gameState.moveCount + 1) ~/ 2,
+                    itemCount: _gameState.moveCount,
                     itemBuilder: (context, i) {
-                      final redIdx = i * 2;
-                      final blackIdx = i * 2 + 1;
-                      final redMove = _gameState.moveHistory[redIdx];
-                      final blackMove = blackIdx < _gameState.moveCount
-                          ? _gameState.moveHistory[blackIdx]
-                          : null;
-                      return Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                        child: Text.rich(
-                          TextSpan(
+                      final move = _gameState.moveHistory[i];
+                      final isRed = move.piece.side == Side.red;
+                      final sideLabel = isRed ? '红' : '黑';
+                      final bgColor = i.isEven
+                          ? Colors.grey.withValues(alpha: 0.03)
+                          : Colors.transparent;
+                      return Container(
+                        color: bgColor,
+                        height: 26,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                          child: Row(
                             children: [
-                              TextSpan(
-                                text: '${i + 1}. ',
-                                style: const TextStyle(
-                                    fontSize: 11, color: Colors.grey),
+                              Text(
+                                '${i + 1}.',
+                                style: const TextStyle(fontSize: 10, color: Colors.grey, fontFamily: 'monospace'),
                               ),
-                              TextSpan(
-                                text: redMove.chineseNotation,
+                              const SizedBox(width: 4),
+                              Text(
+                                sideLabel,
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.red.shade700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: isRed ? Colors.red.shade700 : Colors.grey.shade900,
                                 ),
                               ),
-                              if (blackMove != null) ...[
-                                const TextSpan(
-                                    text: '  ', style: TextStyle(fontSize: 10)),
-                                TextSpan(
-                                  text: blackMove.chineseNotation,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade900,
-                                  ),
+                              const SizedBox(width: 2),
+                              Text(
+                                move.piece.displayName,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              const Spacer(),
+                              Text(
+                                move.chineseNotation,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: isRed ? Colors.red.shade700 : Colors.grey.shade900,
                                 ),
-                              ],
+                              ),
+                              const SizedBox(width: 2),
+                              SizedBox(
+                                height: 20,
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () => _showMoveDialog(i, move),
+                                  child: const Icon(Icons.visibility, size: 13),
+                                ),
+                              ),
                             ],
                           ),
                         ),
