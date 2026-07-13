@@ -319,6 +319,11 @@ class _GameScreenState extends State<GameScreen>
       _selectedPos = null;
       _validMoves = [];
     });
+    // 悔棋后如果是 AI 的回合，触发 AI
+    if (widget.isAiMode && _gameState.currentSide == _aiPlayer?.side &&
+        _gameState.result == GameResult.playing) {
+      _triggerAi();
+    }
   }
 
   void _reset() {
