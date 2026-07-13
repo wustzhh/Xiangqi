@@ -32,7 +32,7 @@ class _ReplayScreenState extends State<ReplayScreen>
   late AnimationController _animController;
   AnimationPiece? _animPiece;
   bool _isAnimating = false;
-  int? _pendingTargetIndex; // 动画完成后跳到的步数
+  int? _pendingTargetIndex;
 
   // 分支模拟
   List<RecordedMove> _branchMoves = [];
@@ -41,6 +41,10 @@ class _ReplayScreenState extends State<ReplayScreen>
   // 编辑模式选中
   Position? _editSelected;
   List<Position> _editValidMoves = [];
+
+  // 将军/绝杀状态
+  String? _checkMessage;
+  String? _checkmateMessage;
 
   @override
   void initState() {
@@ -83,19 +87,49 @@ class _ReplayScreenState extends State<ReplayScreen>
   void _onAnimDone(AnimationStatus status) {
     if (status != AnimationStatus.completed) return;
     if (_pendingTargetIndex == null) return;
-    // 动画完成，真正走棋
     final idx = _pendingTargetIndex!;
     _applyMove(idx);
+    _updateCheckStatus(idx);
     setState(() {
       _animPiece = null;
       _isAnimating = false;
       _currentIndex = idx;
       _pendingTargetIndex = null;
     });
-    // 如果在自动播放中，继续下一步
-    if (_isAutoPlaying && _currentIndex < _allMoves.length - 1) {
-      // 定时器会触发下一步（不经过 _goToMove）
-    }
+    if (_isAutoPlaying && _currentIndex < _allMoves.length - 1) {}
+  }
+
+  /// 更新将军/绝杀状态
+  void _updateCheckStatus(int moveIndex) {
+    final move = _allMoves[moveIndex];
+    // 走完后，轮到对方走，检查对方是否被将军
+    final rules = Rules(_board);
+    final opponent = move.side == 'red' ? Side.black : Side.red;
+    final inCheck = rules.isInCheck(opponent);
+    final isCheckmate = rules.isCheckmate(opponent);
+
+    setState(() {
+      if (isCheckmate) {
+        _checkMessage = null;
+        _checkmateMessage = opponent == Side.red ? '🔴 红方被绝杀！' : '⚫ 黑方被绝杀！';
+      } else if (inCheck) {
+        _checkMessage = opponent == Side.red ? '🔴 将军！' : '⚫ 将军！';
+        _checkmateMessage = null;
+      } else {
+        // 如果是游戏最后一步，显示将杀或困毙
+        if (moveIndex == _allMoves.length - 1) {
+          final record = widget.record;
+          if (record.result == GameResult.redWin) {
+            _checkmateMessage = '🔴 红方胜！';
+          } else if (record.result == GameResult.blackWin) {
+            _checkmateMessage = '⚫ 黑方胜！';
+          }
+        } else {
+          _checkMessage = null;
+          _checkmateMessage = null;
+        }
+      }
+    });
   }
 
   /// 所有走法（原记录 + 分支）
@@ -104,7 +138,7 @@ class _ReplayScreenState extends State<ReplayScreen>
           ? widget.record.moves
           : widget.record.moves.sublist(0, _branchStartIndex + 1) + _branchMoves;
 
-  /// 应用一步走法（直接修改棋盘，无动画）
+  /// 应用一步走法
   void _applyMove(int index) {
     final m = _allMoves[index];
     _board.move(Position(m.fromCol, m.fromRow), Position(m.toCol, m.toRow));
@@ -116,15 +150,21 @@ class _ReplayScreenState extends State<ReplayScreen>
     for (int i = 0; i <= index && i < _allMoves.length; i++) {
       _applyMove(i);
     }
+    // 更新将军状态
+    if (index >= 0) {
+      _updateCheckStatus(index);
+    } else {
+      _checkMessage = null;
+      _checkmateMessage = null;
+    }
   }
 
-  /// 跳到指定步数（带动画，自动播放时不取消定时器）
+  /// 跳到指定步数
   void _goToMove(int index, {bool fromAutoPlay = false}) {
     if (_isAnimating) return;
     index = index.clamp(-1, _allMoves.length - 1);
 
     if (!fromAutoPlay) {
-      // 手动跳转：直接走，无动画
       _autoPlayTimer?.cancel();
       _isAutoPlaying = false;
       _rebuildBoardTo(index);
@@ -133,10 +173,8 @@ class _ReplayScreenState extends State<ReplayScreen>
         _animPiece = null;
       });
     } else {
-      // 自动播放下一步：带动画
       if (index < 0 || index > _currentIndex + 1) return;
       if (index == _currentIndex + 1) {
-        // 预走棋（让棋盘先到目标步的前一步）
         _rebuildBoardTo(index - 1);
         setState(() {
           _pendingTargetIndex = index;
@@ -172,7 +210,6 @@ class _ReplayScreenState extends State<ReplayScreen>
       setState(() => _isAutoPlaying = false);
       return;
     }
-    // 如果已经在最后，从头开始
     if (_currentIndex >= _allMoves.length - 1) {
       _rebuildBoardTo(-1);
       _currentIndex = -1;
@@ -189,15 +226,12 @@ class _ReplayScreenState extends State<ReplayScreen>
     });
   }
 
-  /// 进入/退出编辑模式
   void _toggleEditMode() {
     _autoPlayTimer?.cancel();
     _isAutoPlaying = false;
     if (_isEditMode) {
-      // 退出编辑：保留分支
       setState(() => _isEditMode = false);
     } else {
-      // 进入编辑：记录分支起点
       setState(() {
         _isEditMode = true;
         _branchStartIndex = _currentIndex;
@@ -207,7 +241,6 @@ class _ReplayScreenState extends State<ReplayScreen>
     }
   }
 
-  /// 还原到分支前
   void _restoreToBranchPoint() {
     if (_branchMoves.isEmpty) return;
     setState(() {
@@ -220,12 +253,10 @@ class _ReplayScreenState extends State<ReplayScreen>
     });
   }
 
-  /// 编辑模式点击棋盘（同游戏界面交互）
   void _onEditTap(Position pos) {
     if (_isAnimating) return;
 
     final piece = _board.at(pos);
-    // 确定当前该谁走
     final historyCount = _branchStartIndex >= 0
         ? _branchStartIndex + _branchMoves.length + 1
         : _currentIndex + 1;
@@ -242,7 +273,6 @@ class _ReplayScreenState extends State<ReplayScreen>
       });
     } else {
       if (piece != null && piece.side == currentSide) {
-        // 切换选中
         final rules = Rules(_board);
         final moves = rules.getLegalMoves(pos);
         setState(() {
@@ -250,7 +280,6 @@ class _ReplayScreenState extends State<ReplayScreen>
           _editValidMoves = moves;
         });
       } else if (_editValidMoves.contains(pos)) {
-        // 走棋
         _makeBranchMove(_editSelected!, pos);
         setState(() {
           _editSelected = null;
@@ -320,6 +349,37 @@ class _ReplayScreenState extends State<ReplayScreen>
               color: Colors.purple.shade100,
               child: Text('分支中（${_branchMoves.length}步）',
                   style: TextStyle(fontSize: 13, color: Colors.purple.shade700)),
+            ),
+          // 将军/绝杀提示
+          if (_checkmateMessage != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: Colors.red.shade700,
+              child: Text(
+                _checkmateMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            )
+          else if (_checkMessage != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.orange.shade600,
+              child: Text(
+                _checkMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
             ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -438,11 +498,8 @@ class _ReplayScreenState extends State<ReplayScreen>
     );
   }
 
-  /// 编辑模式走棋
   void _makeBranchMove(Position from, Position to) {
     if (_branchStartIndex == -1) _branchStartIndex = _currentIndex;
-    // 截断：删除分支起点后的所有原分支走法
-    // 记录当前棋盘上的棋子信息
     final piece = _board.at(from);
     final captured = _board.at(to);
     if (piece == null) return;

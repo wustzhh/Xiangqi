@@ -10,7 +10,7 @@ import 'protocol.dart';
 class PlayerSession {
   final WebSocketChannel channel;
   final String id;          // 唯一 ID
-  final String name;        // 显示名称（游客_xxxx）
+  String name;              // 显示名称（可修改）
   StreamSubscription? _subscription;
   String? roomId;           // 当前所在的房间 ID
 

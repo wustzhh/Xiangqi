@@ -19,6 +19,7 @@ enum ClientMsgType {
   drawOffer('draw_offer'),
   drawResponse('draw_response'),
   ready('ready'),
+  updateProfile('update_profile'),
   unknown('');
 
   final String value;
@@ -45,6 +46,7 @@ enum ServerMsgType {
   chat('chat'),
   error('error'),
   roomUpdated('room_updated'),
+  profileUpdated('profile_updated'),
   unknown('');
 
   final String value;

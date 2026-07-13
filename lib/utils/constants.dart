@@ -66,6 +66,12 @@ const double pieceSelectedShadowOffset = 4.0;
 /// 棋子选中时阴影大小倍数
 const double pieceSelectedShadowScale = 1.3;
 
+// ─── 网络对战服务器配置 ──────────────────────────
+abstract class ServerConfig {
+  static const String host = '212.129.243.158';
+  static const int port = 8080;
+}
+
 // ─── 音效路径 ────────────────────────────────────
 abstract class AudioPaths {
   static const String move = 'assets/audio/move.mp3';

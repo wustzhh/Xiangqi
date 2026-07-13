@@ -1,10 +1,11 @@
-/// 大厅界面 — 房间列表 + 创建/加入房间
+/// 大厅界面 — 房间列表 + 创建/加入房间（自动连接）
 library screens.lobby_screen;
 
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/room_info.dart';
 import '../services/network_service.dart';
+import '../utils/constants.dart';
 import 'room_screen.dart';
 
 class LobbyScreen extends StatefulWidget {
@@ -17,22 +18,29 @@ class LobbyScreen extends StatefulWidget {
 class _LobbyScreenState extends State<LobbyScreen> {
   final NetworkService _net = NetworkService();
   StreamSubscription? _subscription;
-
-  final _hostController = TextEditingController(text: '212.129.243.158');
-  final _portController = TextEditingController(text: '8080');
+  bool _connecting = true;
 
   @override
   void initState() {
     super.initState();
     _subscription = _net.messageController.stream.listen(_onMessage);
+    _autoConnect();
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
-    _hostController.dispose();
-    _portController.dispose();
     super.dispose();
+  }
+
+  Future<void> _autoConnect() async {
+    await _net.connect(ServerConfig.host, ServerConfig.port);
+    if (mounted) {
+      setState(() => _connecting = false);
+      if (_net.state == NetConnectionState.connected) {
+        _net.requestRoomList();
+      }
+    }
   }
 
   void _onMessage(Map<String, dynamic> data) {
@@ -47,8 +55,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
           SnackBar(content: Text(data['message'] as String? ?? '错误')),
         );
       }
+    } else if (type == 'profile_updated') {
+      // 档案更新
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   void _enterRoom(String roomId) {
@@ -58,29 +68,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
       MaterialPageRoute(
         builder: (_) => RoomScreen(roomId: roomId),
       ),
-    );
-  }
-
-  Future<void> _connect() async {
-    final host = _hostController.text.trim();
-    final port = int.tryParse(_portController.text.trim()) ?? 8080;
-    if (host.isEmpty) return;
-
-    final ok = await _net.connect(host, port);
-    if (ok) {
+    ).then((_) {
+      // 返回大厅后刷新房间列表
       _net.requestRoomList();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已连接服务器'), backgroundColor: Colors.green),
-        );
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('连接失败'), backgroundColor: Colors.red),
-        );
-      }
-    }
+    });
   }
 
   void _showCreateDialog() {
@@ -147,14 +138,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          if (!connected) _buildConnectPanel(),
-          if (connected) _buildConnectionBar(),
-          const Divider(height: 1),
-          Expanded(child: _buildRoomList()),
-        ],
-      ),
+      body: _connecting
+          ? const Center(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('连接服务器...'),
+              ],
+            ))
+          : !connected
+              ? _buildDisconnected()
+              : _buildRoomList(),
       floatingActionButton: connected
           ? FloatingActionButton(
               onPressed: _showCreateDialog,
@@ -164,69 +159,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
     );
   }
 
-  Widget _buildConnectPanel() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
+  Widget _buildDisconnected() {
+    return Center(
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          TextField(
-            controller: _hostController,
-            decoration: const InputDecoration(
-              labelText: '服务器地址',
-              hintText: 'IP 地址或域名',
-              prefixIcon: Icon(Icons.computer),
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _portController,
-            decoration: const InputDecoration(
-              labelText: '端口',
-              hintText: '8080',
-              prefixIcon: Icon(Icons.numbers),
-            ),
-            keyboardType: TextInputType.number,
-          ),
+          const Icon(Icons.wifi_off, size: 48, color: Colors.grey),
+          const SizedBox(height: 12),
+          const Text('连接失败', style: TextStyle(color: Colors.grey, fontSize: 16)),
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: FilledButton.icon(
-              onPressed: _connect,
-              icon: const Icon(Icons.link),
-              label: const Text('连接服务器'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildConnectionBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: Colors.green.shade50,
-      child: Row(
-        children: [
-          Container(
-            width: 10, height: 10,
-            decoration: const BoxDecoration(
-              color: Colors.green, shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '已连接 · ${_net.playerName ?? ""}',
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-          TextButton(
+          FilledButton.icon(
             onPressed: () {
-              _net.disconnect();
-              setState(() {});
+              setState(() => _connecting = true);
+              _autoConnect();
             },
-            child: const Text('断开', style: TextStyle(fontSize: 12)),
+            icon: const Icon(Icons.refresh),
+            label: const Text('重新连接'),
           ),
         ],
       ),
@@ -234,32 +182,6 @@ class _LobbyScreenState extends State<LobbyScreen> {
   }
 
   Widget _buildRoomList() {
-    if (_net.state == NetConnectionState.connecting) {
-      return const Center(child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 12),
-          Text('连接中...'),
-        ],
-      ));
-    }
-
-    if (_net.state != NetConnectionState.connected) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.wifi_off, size: 48, color: Colors.grey),
-            SizedBox(height: 12),
-            Text('未连接', style: TextStyle(color: Colors.grey, fontSize: 16)),
-            SizedBox(height: 4),
-            Text('请先连接服务器', style: TextStyle(color: Colors.grey, fontSize: 13)),
-          ],
-        ),
-      );
-    }
-
     if (_net.rooms.isEmpty) {
       return const Center(
         child: Column(

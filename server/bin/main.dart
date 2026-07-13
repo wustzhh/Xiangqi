@@ -12,6 +12,8 @@ import '../src/room_manager.dart';
 
 final RoomManager roomManager = RoomManager();
 final List<PlayerSession> _allSessions = [];
+/// 玩家档案存储 (id -> {name, avatar})
+final Map<String, Map<String, String?>> _profiles = {};
 
 void main(List<String> args) async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '') ??
@@ -150,6 +152,9 @@ void _handleMessage(PlayerSession session, String raw) {
     case ClientMsgType.resign:
       roomManager.handleResign(session);
       break;
+    case ClientMsgType.updateProfile:
+      _handleUpdateProfile(session, parsed.data);
+      break;
     case ClientMsgType.unknown:
       // device_id 等无需处理
       break;
@@ -197,3 +202,45 @@ void _sendRoomList(PlayerSession session) {
 
 const int maxRooms = 10;
 const int maxParticipantsPerRoom = 10;
+
+/// 处理玩家档案更新
+void _handleUpdateProfile(PlayerSession session, Map<String, dynamic> data) {
+  final newName = data['name'] as String?;
+  final newAvatar = data['avatar'] as String?;
+
+  if (newName != null) {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) {
+      session.sendError('昵称不能为空');
+      return;
+    }
+    if (trimmed.length > 12) {
+      session.sendError('昵称不能超过12个字符');
+      return;
+    }
+    // 检查昵称是否被其他玩家使用
+    for (final entry in _profiles.entries) {
+      if (entry.key != session.id && entry.value['name'] == trimmed) {
+        session.sendError('该昵称已被使用');
+        return;
+      }
+    }
+    session.name = trimmed;
+  }
+
+  // 更新或创建档案
+  _profiles[session.id] = {
+    'name': session.name,
+    'avatar': newAvatar,
+  };
+
+  // 广播档案更新
+  final msg = buildServerMessage(ServerMsgType.profileUpdated, {
+    'playerId': session.id,
+    'name': session.name,
+    'avatar': newAvatar,
+  });
+  for (final s in _allSessions) {
+    s.send(msg);
+  }
+}

@@ -30,6 +30,9 @@ class NetworkService extends ChangeNotifier {
   /// 玩家名称
   String? playerName;
 
+  /// 玩家档案(id -> name)
+  final Map<String, String> playerNames = {};
+
   /// 房间列表
   List<RoomInfo> rooms = [];
 
@@ -148,6 +151,15 @@ class NetworkService extends ChangeNotifier {
         }
         break;
 
+      case 'profile_updated':
+        final pid = data['playerId'] as String?;
+        final name = data['name'] as String?;
+        if (pid != null && name != null) {
+          playerNames[pid] = name;
+          if (pid == playerId) playerName = name;
+        }
+        break;
+
       case 'room_list':
         final roomList = data['rooms'] as List<dynamic>? ?? [];
         rooms = roomList.map((r) => RoomInfo.fromJson(r as Map<String, dynamic>)).toList();
@@ -200,5 +212,13 @@ class NetworkService extends ChangeNotifier {
   /// 认输
   void resign() {
     send({'type': 'resign'});
+  }
+
+  /// 更新玩家档案
+  void updateProfile({String? name, String? avatar}) {
+    final data = <String, dynamic>{'type': 'update_profile'};
+    if (name != null) data['name'] = name;
+    if (avatar != null) data['avatar'] = avatar;
+    send(data);
   }
 }

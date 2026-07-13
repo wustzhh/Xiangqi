@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/app_config.dart';
 import '../services/secure_storage.dart';
+import '../utils/constants.dart';
 
 /// 设置页面 — 配置 DeepSeek API Key
 /// API Key 通过 SecureStorage 双层加密保存到本地
@@ -115,6 +116,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       tooltip: '选择引擎文件',
                       onPressed: () {},
                     ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // ── 服务器地址 ──
+                const Text(
+                  '网络对战服务器',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '修改后需重启「网络对战」页面生效。',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  enabled: false,
+                  decoration: const InputDecoration(
+                    hintText: '${ServerConfig.host}:${ServerConfig.port}（默认）',
+                    border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 32),
