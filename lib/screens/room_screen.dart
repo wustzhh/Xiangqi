@@ -79,7 +79,13 @@ class _RoomScreenState extends State<RoomScreen> {
         _spectators = (data['spectators'] as List<dynamic>?)
                 ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
                 .toList() ?? [];
-        break;
+        // 如果游戏已经开始，立即初始化棋盘
+        if (data['gameStarted'] == true) {
+          _gameStarted = true;
+          _currentTurn = Side.red;
+          _myTurn = _mySideStr == 'red';
+          _winner = null;
+        }
 
       case 'player_joined':
       case 'player_left':

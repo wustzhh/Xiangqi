@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/room_info.dart';
+import 'device_id.dart';
 
 /// 连接状态
 enum NetConnectionState { disconnected, connecting, connected }
@@ -43,6 +44,9 @@ class NetworkService extends ChangeNotifier {
     super.dispose();
   }
 
+  /// 设备 ID（匿名持久化）
+  String? _deviceId;
+
   /// 连接到服务器
   Future<bool> connect(String host, int port) async {
     if (_state == NetConnectionState.connecting) return false;
@@ -53,11 +57,13 @@ class NetworkService extends ChangeNotifier {
     _state = NetConnectionState.connecting;
     notifyListeners();
 
+    // 获取设备 ID（首次生成 UUID）
+    _deviceId = await getDeviceId();
+
     try {
       final uri = Uri.parse('ws://$host:$port');
       _channel = WebSocketChannel.connect(uri);
 
-      // 等待连接建立
       await _channel!.ready;
 
       _state = NetConnectionState.connected;
@@ -65,6 +71,9 @@ class NetworkService extends ChangeNotifier {
       notifyListeners();
 
       _setupListener();
+
+      // 连接建立后立即发送设备 ID 用于身份识别
+      send({'type': 'device_id', 'deviceId': _deviceId});
       return true;
     } catch (e) {
       _state = NetConnectionState.disconnected;

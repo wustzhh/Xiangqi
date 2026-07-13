@@ -2,6 +2,7 @@
 library server.room_manager;
 
 import 'dart:collection';
+import 'dart:async';
 import 'protocol.dart';
 import 'player_session.dart';
 import 'room.dart';
@@ -11,8 +12,10 @@ class RoomManager {
   static const int maxRooms = 10;
   static const int maxParticipantsPerRoom = 10;
   static const int maxPlayersPerRoom = 2;
+  static const int reconnectTimeout = 30; // 重连超时秒数
 
   final Map<String, Room> _rooms = LinkedHashMap();
+  final Map<String, _DisconnectedPlayer> _disconnected = {};
   int _nextRoomNumber = 1;
 
   /// 获取房间列表
@@ -26,7 +29,6 @@ class RoomManager {
     final roomId = 'room_${_nextRoomNumber++}';
     final room = Room(id: roomId, name: name, hostId: host.id);
 
-    // 房主自动成为红方玩家
     final participant = RoomParticipant(
       session: host,
       role: PlayerRole.player,
@@ -35,13 +37,11 @@ class RoomManager {
     room.addParticipant(participant);
     _rooms[roomId] = room;
 
-    // 通知房主创建成功
     host.sendMessage(ServerMsgType.roomCreated, {
       'roomId': roomId,
       'room': room.summary.toJson(),
     });
 
-    // 通知所有在线的客户端更新房间列表
     _broadcastRoomList();
     return room;
   }
@@ -54,8 +54,9 @@ class RoomManager {
       return;
     }
 
-    if (room.status != RoomStatus.waiting) {
-      joiner.sendError('对局已开始，无法加入');
+    // 对局中只允许观战
+    if (room.status == RoomStatus.playing && !asSpectator) {
+      joiner.sendError('对局已开始，只能观战');
       return;
     }
 
@@ -68,12 +69,11 @@ class RoomManager {
     PlayerRole role;
     String? side;
 
-    if (asSpectator || room.isFull) {
+    if (asSpectator || room.isFull || room.status != RoomStatus.waiting) {
       role = PlayerRole.spectator;
       side = null;
     } else {
       role = PlayerRole.player;
-      // 红方已被房主占用，新玩家自动为黑方
       side = 'black';
     }
 
@@ -84,7 +84,7 @@ class RoomManager {
     );
     room.addParticipant(participant);
 
-    // 通知加入者
+    // 通知加入者（含 gameStarted 标记）
     final playersJson = room.players.map((p) => PlayerInfo(
       id: p.id, name: p.name, side: p.side,
     ).toJson()).toList();
@@ -92,12 +92,14 @@ class RoomManager {
       id: p.id, name: p.name, side: p.side,
     ).toJson()).toList();
 
+    final gameStarting = room.players.length == maxPlayersPerRoom;
     joiner.sendMessage(ServerMsgType.roomJoined, {
       'roomId': roomId,
       'roomName': room.name,
       'players': playersJson,
       'spectators': spectatorsJson,
       'yourSide': side,
+      if (gameStarting) 'gameStarted': true,
     });
 
     // 通知房间里其他人
@@ -108,11 +110,10 @@ class RoomManager {
     ));
 
     // 如果凑齐了两个玩家，开始游戏
-    if (room.players.length == maxPlayersPerRoom) {
+    if (gameStarting) {
       _startGame(room);
     }
 
-    // 更新房间列表
     _broadcastRoomList();
   }
 
@@ -129,10 +130,8 @@ class RoomManager {
     room.removeParticipant(session.id);
 
     if (room.isEmpty) {
-      // 房间没人了，删除
       _rooms.remove(roomId);
     } else {
-      // 通知其他人
       room.broadcastToOthers(session.id, buildServerMessage(
         ServerMsgType.playerLeft, {
           'playerId': session.id,
@@ -140,12 +139,10 @@ class RoomManager {
         },
       ));
 
-      // 如果走了一个玩家，结束游戏
       if (wasPlayer && room.status == RoomStatus.playing) {
         _endGame(room, 'red', '对方离开');
       }
 
-      // 如果房间空了或者玩家全走了
       if (room.players.isEmpty && room.status == RoomStatus.playing) {
         _endGame(room, 'black', '对方离开');
         _rooms.remove(roomId);
@@ -181,7 +178,6 @@ class RoomManager {
       return;
     }
 
-    // 广播走棋给房间所有人（含发送者自己，便于同步）
     room.broadcast(buildServerMessage(ServerMsgType.moveMade, {
       'from': from,
       'to': to,
@@ -204,33 +200,109 @@ class RoomManager {
     final participant = room.getParticipant(session.id);
     if (participant == null || participant.role != PlayerRole.player) return;
 
-    // 认输方输，对方赢
     final winner = participant.side == 'red' ? 'black' : 'red';
     _endGame(room, winner, '认输');
   }
 
-  /// 处理和棋请求
-  void handleDrawOffer(PlayerSession session) {
+  // ═══════════════════════════════════════════
+  //  断线重连
+  // ═══════════════════════════════════════════
+
+  /// 玩家断开连接（移到等待重连池）
+  void handleDisconnect(PlayerSession session) {
     final roomId = session.roomId;
     if (roomId == null) return;
 
     final room = _rooms[roomId];
     if (room == null) return;
 
-    room.broadcastToOthers(session.id, buildServerMessage(
-      ServerMsgType.chat, {
-        'playerName': session.name,
-        'message': '请求和棋',
-      },
-    ));
+    final wasPlayer = room.getParticipant(session.id)?.role == PlayerRole.player;
+    if (!wasPlayer) {
+      // 观众断线直接移除
+      leaveRoom(session);
+      return;
+    }
+
+    // 通知其他人玩家暂时断开
+    room.broadcast(buildServerMessage(ServerMsgType.playerLeft, {
+      'playerId': session.id,
+      'playerName': session.name,
+      'disconnected': true,
+    }));
+
+    // 启动 30s 重连计时器
+    final side = room.getParticipant(session.id)?.side ?? 'red';
+    final timer = Timer(Duration(seconds: reconnectTimeout), () {
+      // 超时未重连，结束游戏
+      if (_disconnected.containsKey(session.id)) {
+        _disconnected.remove(session.id);
+        room.removeParticipant(session.id);
+        _endGame(room, side == 'red' ? 'black' : 'red', '对方超时未重连');
+        _broadcastRoomList();
+      }
+    });
+
+    _disconnected[session.id] = _DisconnectedPlayer(
+      session: session,
+      roomId: roomId,
+      timer: timer,
+    );
   }
 
-  /// 玩家断线处理
-  void handleDisconnect(PlayerSession session) {
-    leaveRoom(session);
+  /// 重连（用旧的 session ID 恢复）
+  bool tryReconnect(PlayerSession newSession) {
+    final old = _disconnected.remove(newSession.id);
+    if (old == null) return false;
+
+    old.timer.cancel(); // 取消超时计时器
+
+    final room = _rooms[old.roomId];
+    if (room == null) return false;
+
+    // 找到旧的参与者并替换 session
+    final participant = room.getParticipant(newSession.id);
+    if (participant == null) return false;
+
+    // 更新 session 引用
+    participant.session.disconnect(); // 关闭旧连接
+    // 替换为新 session
+    final idx = room.participants.indexOf(participant);
+    room.participants[idx] = RoomParticipant(
+      session: newSession,
+      role: participant.role,
+      side: participant.side,
+    );
+    newSession.roomId = room.id;
+
+    // 通知房间所有人重连成功
+    room.broadcast(buildServerMessage(ServerMsgType.playerJoined, {
+      'player': PlayerInfo(id: newSession.id, name: newSession.name, side: participant.side).toJson(),
+      'reconnected': true,
+    }));
+
+    // 恢复游戏所需的完整状态给重连者
+    final playersJson = room.players.map((p) => PlayerInfo(
+      id: p.id, name: p.name, side: p.side,
+    ).toJson()).toList();
+    final spectatorsJson = room.spectators.map((p) => PlayerInfo(
+      id: p.id, name: p.name, side: p.side,
+    ).toJson()).toList();
+
+    newSession.sendMessage(ServerMsgType.roomJoined, {
+      'roomId': room.id,
+      'roomName': room.name,
+      'players': playersJson,
+      'spectators': spectatorsJson,
+      'yourSide': participant.side,
+      'gameStarted': true,
+      'reconnected': true,
+    });
+
+    return true;
   }
 
-  /// 开始游戏
+  // ═══════════════════════════════════════════
+
   void _startGame(Room room) {
     room.status = RoomStatus.playing;
 
@@ -243,7 +315,6 @@ class RoomManager {
       });
     }
 
-    // 通知观众
     for (final s in room.spectators) {
       s.session.sendMessage(ServerMsgType.gameStart, {
         'yourSide': null,
@@ -253,7 +324,6 @@ class RoomManager {
     }
   }
 
-  /// 结束游戏
   void _endGame(Room room, String winner, String reason) {
     room.status = RoomStatus.finished;
 
@@ -265,13 +335,22 @@ class RoomManager {
     _broadcastRoomList();
   }
 
-  /// 广播房间列表给所有在线的客户端
   void _broadcastRoomList() {
-    // 这个由 main.dart 来管理，因为这里没有所有连接的列表
-    // 提供一个回调让 main.dart 来刷新
     onRoomListChanged?.call();
   }
 
-  /// 房间列表变化时的回调
   void Function()? onRoomListChanged;
+}
+
+/// 断线等待重连的玩家
+class _DisconnectedPlayer {
+  final PlayerSession session;
+  final String roomId;
+  final Timer timer;
+
+  _DisconnectedPlayer({
+    required this.session,
+    required this.roomId,
+    required this.timer,
+  });
 }

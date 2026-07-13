@@ -18,7 +18,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
   final NetworkService _net = NetworkService();
   StreamSubscription? _subscription;
 
-  final _hostController = TextEditingController(text: '127.0.0.1');
+  final _hostController = TextEditingController(text: '212.129.243.158');
   final _portController = TextEditingController(text: '8080');
 
   @override
