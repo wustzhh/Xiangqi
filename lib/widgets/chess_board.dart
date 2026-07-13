@@ -412,7 +412,7 @@ class ChessBoardPainter extends CustomPainter {
     }
   }
 
-  /// 最顶层：选中棋子时可吃的敌方→画红色对剑（不受分析模式遮挡）
+  /// 最顶层：选中棋子时可吃的敌方→画红色对剑+底圈（不受分析模式遮挡）
   void _drawCrossingSwordsOnEnemies(Canvas canvas) {
     for (final pos in validMoves) {
       final target = board.at(pos);
@@ -422,11 +422,57 @@ class ChessBoardPainter extends CustomPainter {
       if (selectedPiece == null) continue;
       if (target.side == selectedPiece.side) continue;
       final center = _cellPos(pos.col, pos.row);
-      _drawSwordsOnly(canvas, center);
+      _drawCrossingSwords(canvas, center);
     }
   }
 
-  /// 只画两把交叉剑，无背景圈
+  /// 红色对剑+半透明底圈+外圈（用于选中棋子时可吃的高亮）
+  void _drawCrossingSwords(Canvas canvas, Offset center) {
+    final len = cellSize * 0.75;
+    final halfLen = len / 2;
+    final bladeW = cellSize * 0.045;
+
+    // 红色半透明底圈
+    final bgPaint = Paint()
+      ..color = const Color(0x33FF3333)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, cellSize * 0.48, bgPaint);
+
+    // 红色外圈
+    final ringPaint = Paint()
+      ..color = const Color(0xCCFF3333)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawCircle(center, cellSize * 0.46, ringPaint);
+
+    void drawSword(double angle) {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate(angle);
+
+      final bladePaint = Paint()
+        ..color = const Color(0xCCDD2222)
+        ..style = PaintingStyle.fill;
+      final bladePath = Path()
+        ..moveTo(0, -halfLen)
+        ..lineTo(-bladeW, -cellSize * 0.1)
+        ..lineTo(bladeW, -cellSize * 0.1)
+        ..close();
+      canvas.drawPath(bladePath, bladePaint);
+
+      final hiltPaint = Paint()
+        ..color = const Color(0xCC884400)
+        ..style = PaintingStyle.fill;
+      canvas.drawRect(Rect.fromCenter(center: Offset(0, cellSize * 0.06), width: bladeW * 3, height: cellSize * 0.08), hiltPaint);
+
+      canvas.restore();
+    }
+
+    drawSword(-0.75);
+    drawSword(0.75);
+  }
+
+  /// 纯交叉剑（无背景圈，用于分析模式中的高亮）
   void _drawSwordsOnly(Canvas canvas, Offset center) {
     final len = cellSize * 0.65;
     final halfLen = len / 2;
