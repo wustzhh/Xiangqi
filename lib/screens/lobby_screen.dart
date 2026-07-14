@@ -46,31 +46,44 @@ class _LobbyScreenState extends State<LobbyScreen> {
   void _onMessage(Map<String, dynamic> data) {
     final type = data['type'] as String?;
     if (type == 'room_created') {
-      _enterRoom(data);
+      // 创建者始终是红方
+      _enterRoom(data['roomId'] as String, initialSide: 'red', isHost: true);
     } else if (type == 'room_joined') {
-      _enterRoom(data);
+      final roomId = data['roomId'] as String?;
+      if (roomId != null) {
+        _enterRoom(
+          roomId,
+          initialSide: data['yourSide'] as String?,
+          gameAlreadyStarted: data['gameStarted'] == true,
+          isHost: false,
+        );
+      }
     } else if (type == 'error') {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(data['message'] as String? ?? '错误')),
         );
       }
+    } else if (type == 'profile_updated') {
+      // 档案更新
     }
     if (mounted) setState(() {});
   }
 
-  /// 把完整消息数据传给 RoomScreen，避免消息被消费掉的问题
-  void _enterRoom(Map<String, dynamic> data) {
+  void _enterRoom(String roomId, {String? initialSide, bool gameAlreadyStarted = false, bool isHost = false}) {
     if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => RoomScreen(
-          roomId: data['roomId'] as String? ?? '',
-          initialData: data,
+          roomId: roomId,
+          initialSide: initialSide,
+          gameAlreadyStarted: gameAlreadyStarted,
+          isHost: isHost,
         ),
       ),
     ).then((_) {
+      // 返回大厅后刷新房间列表
       _net.requestRoomList();
     });
   }

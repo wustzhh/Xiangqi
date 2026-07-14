@@ -15,11 +15,15 @@ import '../utils/constants.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
-  final Map<String, dynamic>? initialData;
+  final String? initialSide;
+  final bool gameAlreadyStarted;
+  final bool isHost;  // 房主标记，由大厅传入
   const RoomScreen({
     super.key,
     required this.roomId,
-    this.initialData,
+    this.initialSide,
+    this.gameAlreadyStarted = false,
+    this.isHost = false,
   });
 
   @override
@@ -40,7 +44,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _myReady = false;
   bool _bothReady = false;
   bool _showIntro = false;
-  bool _showSettings = true;  // 默认展开
+  bool _showSettings = false;
 
   // 房间设置（本地缓存）
   Map<String, dynamic> _settings = {
@@ -71,51 +75,25 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void initState() {
     super.initState();
-    // 从 initialData 恢复房间状态（避免消息被大厅消费的问题）
-    _initFromData(widget.initialData);
-    _subscription = _net.messageController.stream.listen(_onMessage);
-  }
-
-  /// 从消息数据初始化房间状态
-  void _initFromData(Map<String, dynamic>? data) {
-    if (data == null) return;
-    final type = data['type'] as String?;
-
-    if (type == 'room_created') {
+    if (widget.initialSide != null) {
+      _mySideStr = widget.initialSide;
+    }
+    if (widget.isHost) {
       _isHost = true;
-      _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
       if (_net.playerId != null) {
         _players = [
           PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
         ];
       }
-    } else if (type == 'room_joined') {
-      _roomName = data['roomName'] as String? ?? '';
-      _mySideStr = data['yourSide'] as String?;
-      _players = (data['players'] as List<dynamic>?)
-              ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-              .toList() ?? [];
-      _spectators = (data['spectators'] as List<dynamic>?)
-              ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-              .toList() ?? [];
-      // 如果游戏已开始，初始化棋盘
-      if (data['gameStarted'] == true) {
-        _gameStarted = true;
-        _board = Board.initial();
-        _rules = Rules(_board);
-        _currentTurn = Side.red;
-        _myTurn = _mySideStr == 'red';
-      }
-      // 重连时恢复棋盘
-      if (data['reconnected'] == true && data['moveHistory'] != null) {
-        _replayMoves(data['moveHistory'] as List<dynamic>);
-        _gameStarted = true;
-      }
     }
-    // 公共字段
-    if (data['settings'] != null) {
-      _settings = Map<String, dynamic>.from(data['settings'] as Map);
+    if (widget.gameAlreadyStarted) {
+      _gameStarted = true;
+      _board = Board.initial();
+      _rules = Rules(_board);
+      _currentTurn = Side.red;
+      _myTurn = _mySideStr == 'red';
     }
+    _subscription = _net.messageController.stream.listen(_onMessage);
   }
 
   @override
@@ -132,6 +110,10 @@ class _RoomScreenState extends State<RoomScreen> {
       case 'room_created':
         _isHost = true;
         _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
+        if (data['settings'] != null) {
+          _settings = Map<String, dynamic>.from(data['settings'] as Map);
+        }
+        // 房主加入玩家列表
         if (_net.playerId != null) {
           _players = [
             PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
@@ -150,15 +132,6 @@ class _RoomScreenState extends State<RoomScreen> {
                 .toList() ?? [];
         if (data['settings'] != null) {
           _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
-        if (data['gameStarted'] == true) {
-          _gameStarted = true;
-          _currentTurn = Side.red;
-          _myTurn = _mySideStr == 'red';
-        }
-        if (data['reconnected'] == true && data['moveHistory'] != null) {
-          _replayMoves(data['moveHistory'] as List<dynamic>);
-          _gameStarted = true;
         }
         break;
 
@@ -216,10 +189,6 @@ class _RoomScreenState extends State<RoomScreen> {
         _rules = Rules(_board);
 
         _currentTurn = _currentTurn.opponent;
-
-        // 检测将死/困毙
-        _checkGameEnd();
-
         _myTurn = !_isSpectator && _currentTurn == _mySide;
         _selectedPos = null;
         _validMoves = [];
@@ -258,15 +227,9 @@ class _RoomScreenState extends State<RoomScreen> {
         });
       } else if (_validMoves.contains(pos)) {
         _net.makeMove(_selectedPos!.col, _selectedPos!.row, pos.col, pos.row);
-        // 本地即时更新棋盘
-        _board.move(_selectedPos!, pos);
-        _rules = Rules(_board);
-        _currentTurn = _currentTurn.opponent;
-        _checkGameEnd();
         setState(() {
           _selectedPos = null;
           _validMoves = [];
-          _myTurn = false;
         });
       } else {
         setState(() {
@@ -275,35 +238,6 @@ class _RoomScreenState extends State<RoomScreen> {
         });
       }
     }
-  }
-
-  /// 检测当前局面是否将死/困毙
-  void _checkGameEnd() {
-    if (_winner != null) return;
-    final rules = Rules(_board);
-    final inCheckmate = rules.isCheckmate(_currentTurn);
-    final inStalemate = rules.isStalemate(_currentTurn);
-    if (inCheckmate || inStalemate) {
-      final winnerSide = _currentTurn.opponent;
-      final winner = winnerSide == Side.red ? 'red' : 'black';
-      final reason = inCheckmate ? '将死' : '困毙';
-      _winner = winner;
-      _net.sendGameOver(winner, reason);
-    }
-  }
-
-  /// 重放走棋历史恢复棋盘
-  void _replayMoves(List<dynamic> history) {
-    _board = Board.initial();
-    for (final entry in history) {
-      final f = entry['from'] as Map<String, dynamic>;
-      final t = entry['to'] as Map<String, dynamic>;
-      _board.move(Position(f['col'] as int, f['row'] as int),
-                   Position(t['col'] as int, t['row'] as int));
-    }
-    _rules = Rules(_board);
-    _currentTurn = history.length % 2 == 0 ? Side.red : Side.black;
-    _myTurn = !_isSpectator && _currentTurn == _mySide;
   }
 
   void _onIntroComplete() {
@@ -589,7 +523,6 @@ class _RoomScreenState extends State<RoomScreen> {
             Column(
               children: [
                 _buildPlayersList(),
-                Container(width: double.infinity, padding: EdgeInsets.all(8), color: Colors.green, child: Text("DEBUG: _gameStarted=$_gameStarted _isHost=$_isHost _players=${_players.length}", style: TextStyle(color: Colors.white, fontSize: 12))),
                 if (!_isSpectator && _spectators.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -603,10 +536,12 @@ class _RoomScreenState extends State<RoomScreen> {
                       ],
                     ),
                   ),
-                // 房间设置（始终显示）
-                if (!_gameStarted) _buildSettingsPanel(),
+                // 等待中 → 设置面板 + 准备按钮
+                if (!_gameStarted && !_showIntro) ...[
+                  if (_isHost) _buildSettingsPanel(),
+                  _buildWaitingUI(),
+                ],
                 // 游戏中 → 状态 + 棋盘
-                if (!_gameStarted && !_showIntro) _buildWaitingUI(),
                 if (_gameStarted && _winner == null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
