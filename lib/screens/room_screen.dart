@@ -358,9 +358,16 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  String _settingsStr(String key, String fallback) {
+    final v = _settings[key];
+    if (v is String) return v;
+    if (v is bool && key == 'canUndo') return v ? 'mutual' : 'none';
+    return fallback;
+  }
+
   /// 中间区域：房间设置面板
   Widget _buildSettingsPanel() {
-    final canUndo = _settings['canUndo'] as String? ?? 'mutual';
+    final canUndo = _settingsStr('canUndo', 'mutual');
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),

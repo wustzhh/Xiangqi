@@ -34,7 +34,7 @@ class RoomParticipant {
 
 /// 房间设置
 class RoomSettings {
-  bool canUndo = true;
+  String canUndo = 'mutual'; // 'none' | 'mutual' | 'force'
   int timePerMove = 0;   // 步时（秒），0=不限
   int totalTime = 0;     // 局时（分钟），0=不限
   String sideChoice = 'host_red'; // host_red | host_black | random
@@ -47,7 +47,7 @@ class RoomSettings {
   };
 
   void apply(Map<String, dynamic> data) {
-    if (data.containsKey('canUndo')) canUndo = data['canUndo'] as bool;
+    if (data.containsKey('canUndo')) canUndo = data['canUndo'] as String;
     if (data.containsKey('timePerMove')) timePerMove = data['timePerMove'] as int;
     if (data.containsKey('totalTime')) totalTime = data['totalTime'] as int;
     if (data.containsKey('sideChoice')) sideChoice = data['sideChoice'] as String;
