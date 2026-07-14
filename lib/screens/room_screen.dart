@@ -534,6 +534,18 @@ class _RoomScreenState extends State<RoomScreen> {
         ),
         body: Stack(
           children: [
+            // 调试栏（始终显示状态值）
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: Container(
+                color: Colors.red.withValues(alpha: 0.8),
+                padding: const EdgeInsets.all(4),
+                child: Text(
+                  'isHost=$_isHost game=${_gameStarted}intro=$_showIntro p=${_players.length} side=$_mySideStr sSet=$_showSettings',
+                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                ),
+              ),
+            ),
             Column(
               children: [
                 _buildPlayersList(),
