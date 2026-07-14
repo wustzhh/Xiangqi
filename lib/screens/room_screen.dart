@@ -44,7 +44,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _myReady = false;
   bool _bothReady = false;
   bool _showIntro = false;
-  bool _showSettings = false;
+  bool _showSettings = true;  // 默认展开
 
   // 房间设置（本地缓存）
   Map<String, dynamic> _settings = {
@@ -538,7 +538,7 @@ class _RoomScreenState extends State<RoomScreen> {
                   ),
                 // 等待中 → 设置面板 + 准备按钮
                 if (!_gameStarted && !_showIntro) ...[
-                  if (_isHost) _buildSettingsPanel(),
+                  _buildSettingsPanel(),
                   _buildWaitingUI(),
                 ],
                 // 游戏中 → 状态 + 棋盘
