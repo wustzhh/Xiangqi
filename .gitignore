@@ -30,6 +30,5 @@ android_cmdline.zip
 *.local.properties
 *.gradle.properties.user
 
-# Pre-built binaries (built from build/ directory)
-applications/*.apk
+# Pre-built binaries
 applications/windows-client/
