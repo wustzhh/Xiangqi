@@ -22,6 +22,9 @@ class RoomManager {
   List<RoomSummary> get roomList =>
       _rooms.values.map((r) => r.summary).toList();
 
+  /// 通过 ID 查找房间
+  Room? findRoom(String roomId) => _rooms[roomId];
+
   /// 创建房间
   Room? createRoom(String name, PlayerSession host) {
     if (_rooms.length >= maxRooms) return null;
@@ -180,6 +183,14 @@ class RoomManager {
       'playerId': session.id,
       'playerName': session.name,
     }));
+
+    // 保存走棋历史
+    room.moveHistory.add({
+      'from': from,
+      'to': to,
+      'playerId': session.id,
+      'side': room.getParticipant(session.id)?.side,
+    });
   }
 
   /// 处理认输
@@ -374,6 +385,7 @@ class RoomManager {
       'yourSide': participant.side,
       'gameStarted': true,
       'reconnected': true,
+      'moveHistory': room.moveHistory,
     });
 
     return true;

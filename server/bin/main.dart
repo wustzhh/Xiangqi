@@ -8,6 +8,7 @@ import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../src/protocol.dart';
 import '../src/player_session.dart';
+import '../src/room.dart';
 import '../src/room_manager.dart';
 
 final RoomManager roomManager = RoomManager();
@@ -157,6 +158,9 @@ void _handleMessage(PlayerSession session, String raw) {
     case ClientMsgType.startGame:
       roomManager.handleStartGame(session);
       break;
+    case ClientMsgType.gameOver:
+      _handleGameOver(session, parsed.data);
+      break;
     case ClientMsgType.updateProfile:
       _handleUpdateProfile(session, parsed.data);
       break;
@@ -248,4 +252,23 @@ void _handleUpdateProfile(PlayerSession session, Map<String, dynamic> data) {
   for (final s in _allSessions) {
     s.send(msg);
   }
+}
+
+/// 处理客户端检测到的游戏结束（将死/困毙）
+void _handleGameOver(PlayerSession session, Map<String, dynamic> data) {
+  final roomId = session.roomId;
+  if (roomId == null) return;
+
+  final room = roomManager.findRoom(roomId);
+  if (room == null) return;
+
+  final winner = data['winner'] as String? ?? 'red';
+  final reason = data['reason'] as String? ?? '将死';
+
+  room.broadcast(buildServerMessage(ServerMsgType.gameOver, {
+    'winner': winner,
+    'reason': reason,
+  }));
+  room.status = RoomStatus.finished;
+  _broadcastRoomListToAll();
 }

@@ -21,6 +21,7 @@ enum ClientMsgType {
   ready('ready'),
   updateSettings('update_settings'),
   startGame('start_game'),
+  gameOver('game_over'),
   updateProfile('update_profile'),
   unknown('');
 

@@ -65,6 +65,8 @@ class Room {
   final List<RoomParticipant> participants = [];
   RoomStatus status = RoomStatus.waiting;
   RoomSettings settings = RoomSettings();
+  /// 走棋历史（用于重连恢复棋盘）
+  final List<Map<String, dynamic>> moveHistory = [];
 
   /// 是否双方都准备好了
   bool get bothReady =>

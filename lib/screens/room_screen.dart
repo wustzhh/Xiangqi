@@ -123,6 +123,11 @@ class _RoomScreenState extends State<RoomScreen> {
         if (data['settings'] != null) {
           _settings = Map<String, dynamic>.from(data['settings'] as Map);
         }
+        // 重连时恢复棋盘状态
+        if (data['reconnected'] == true && data['moveHistory'] != null) {
+          _replayMoves(data['moveHistory'] as List<dynamic>);
+          _gameStarted = true;
+        }
         break;
 
       case 'player_joined':
@@ -179,6 +184,10 @@ class _RoomScreenState extends State<RoomScreen> {
         _rules = Rules(_board);
 
         _currentTurn = _currentTurn.opponent;
+
+        // 检测将死/困毙
+        _checkGameEnd();
+
         _myTurn = !_isSpectator && _currentTurn == _mySide;
         _selectedPos = null;
         _validMoves = [];
@@ -217,9 +226,15 @@ class _RoomScreenState extends State<RoomScreen> {
         });
       } else if (_validMoves.contains(pos)) {
         _net.makeMove(_selectedPos!.col, _selectedPos!.row, pos.col, pos.row);
+        // 本地即时更新棋盘
+        _board.move(_selectedPos!, pos);
+        _rules = Rules(_board);
+        _currentTurn = _currentTurn.opponent;
+        _checkGameEnd();
         setState(() {
           _selectedPos = null;
           _validMoves = [];
+          _myTurn = false;
         });
       } else {
         setState(() {
@@ -228,6 +243,35 @@ class _RoomScreenState extends State<RoomScreen> {
         });
       }
     }
+  }
+
+  /// 检测当前局面是否将死/困毙
+  void _checkGameEnd() {
+    if (_winner != null) return;
+    final rules = Rules(_board);
+    final inCheckmate = rules.isCheckmate(_currentTurn);
+    final inStalemate = rules.isStalemate(_currentTurn);
+    if (inCheckmate || inStalemate) {
+      final winnerSide = _currentTurn.opponent;
+      final winner = winnerSide == Side.red ? 'red' : 'black';
+      final reason = inCheckmate ? '将死' : '困毙';
+      _winner = winner;
+      _net.sendGameOver(winner, reason);
+    }
+  }
+
+  /// 重放走棋历史恢复棋盘
+  void _replayMoves(List<dynamic> history) {
+    _board = Board.initial();
+    for (final entry in history) {
+      final f = entry['from'] as Map<String, dynamic>;
+      final t = entry['to'] as Map<String, dynamic>;
+      _board.move(Position(f['col'] as int, f['row'] as int),
+                   Position(t['col'] as int, t['row'] as int));
+    }
+    _rules = Rules(_board);
+    _currentTurn = history.length % 2 == 0 ? Side.red : Side.black;
+    _myTurn = !_isSpectator && _currentTurn == _mySide;
   }
 
   void _onIntroComplete() {

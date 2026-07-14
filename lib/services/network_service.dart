@@ -224,6 +224,15 @@ class NetworkService extends ChangeNotifier {
     });
   }
 
+  /// 发送游戏结束（将死/困毙检测到后通知服务器）
+  void sendGameOver(String winner, String reason) {
+    send({
+      'type': 'game_over',
+      'winner': winner,
+      'reason': reason,
+    });
+  }
+
   /// 认输
   void resign() {
     send({'type': 'resign'});

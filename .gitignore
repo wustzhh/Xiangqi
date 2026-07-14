@@ -29,3 +29,8 @@ reasonix.toml
 android_cmdline.zip
 *.local.properties
 *.gradle.properties.user
+
+# Pre-built binaries (built from build/ directory)
+applications/*.apk
+applications/*.exe
+applications/windows-client/
