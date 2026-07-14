@@ -2,7 +2,6 @@
 library screens.room_screen;
 
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../engine/board.dart';
 import '../engine/piece.dart';
@@ -13,16 +12,10 @@ import '../widgets/chess_board.dart';
 import '../widgets/swords_intro.dart';
 import '../models/analysis_data.dart';
 import '../utils/constants.dart';
-import '../main.dart' as app;
 
-/// 调试日志
+/// 调试日志（debug 模式输出到控制台）
 void _log(String msg) {
   print(msg);
-  if (app.logFilePath != null) {
-    try {
-      File(app.logFilePath!).writeAsStringSync('$msg\n', mode: FileMode.append);
-    } catch (_) {}
-  }
 }
 
 class RoomScreen extends StatefulWidget {
