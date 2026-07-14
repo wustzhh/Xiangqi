@@ -14,13 +14,14 @@ import '../widgets/swords_intro.dart';
 import '../models/analysis_data.dart';
 import '../utils/constants.dart';
 
-/// 调试日志（debug 模式输出到控制台）
+/// 调试日志（写入系统临时目录，release 也可用）
 void _log(String msg) {
   try {
-    final exeDir = File(Platform.resolvedExecutable).parent;
-    final logFile = File('${exeDir.path}/xiangqi_debug.txt');
-    logFile.writeAsStringSync('[${DateTime.now()}] $msg\n', mode: FileMode.append);
+    final dir = Platform.environment['TEMP'] ?? Platform.environment['TMP'] ?? '/';
+    final logFile = File('$dir/xiangqi_log.txt');
+    logFile.writeAsStringSync('$msg\n', mode: FileMode.append);
   } catch (_) {}
+  debugPrint(msg);
 }
 
 class RoomScreen extends StatefulWidget {
