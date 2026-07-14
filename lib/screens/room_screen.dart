@@ -1,5 +1,4 @@
 /// 房间界面 — 等待/对局/观战
-library screens.room_screen;
 
 import 'dart:async';
 import 'dart:io';
@@ -12,9 +11,8 @@ import '../services/network_service.dart';
 import '../widgets/chess_board.dart';
 import '../widgets/swords_intro.dart';
 import '../models/analysis_data.dart';
-import '../utils/constants.dart';
 
-/// 调试日志（debug 模式输出到控制台）
+/// 调试日志
 void _log(String msg) {
   print(msg);
   try {
@@ -26,7 +24,7 @@ class RoomScreen extends StatefulWidget {
   final String roomId;
   final String? initialSide;
   final bool gameAlreadyStarted;
-  final bool isHost;  // 房主标记，由大厅传入
+  final bool isHost;
   const RoomScreen({
     super.key,
     required this.roomId,
@@ -43,9 +41,9 @@ class _RoomScreenState extends State<RoomScreen> {
   final NetworkService _net = NetworkService();
   StreamSubscription? _subscription;
 
-  // 当前房间状态
   String _roomName = '';
   List<PlayerInfo> _players = [];
+  // ignore: unused_field
   List<PlayerInfo> _spectators = [];
   String? _mySideStr;
   bool _gameStarted = false;
@@ -53,17 +51,16 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _myReady = false;
   bool _bothReady = false;
   bool _showIntro = false;
-  bool _showSettings = true;  // 默认展开
 
-  // 房间设置（本地缓存）
+  // 房间设置
   Map<String, dynamic> _settings = {
-    'canUndo': true,
+    'canUndo': 'mutual',  // 'none' | 'mutual' | 'force'
+    'undoLimit': 3,
     'timePerMove': 0,
     'totalTime': 0,
     'sideChoice': 'host_red',
   };
 
-  // 对局状态
   Board _board = Board.initial();
   Rules _rules = Rules(Board.initial());
   Side _currentTurn = Side.red;
@@ -84,19 +81,14 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void initState() {
     super.initState();
-    _log('[RoomScreen] initState: isHost=${widget.isHost} initialSide=${widget.initialSide} gameStarted=${widget.gameAlreadyStarted} playerId=${_net.playerId} playerName=${_net.playerName}');
-    if (widget.initialSide != null) {
-      _mySideStr = widget.initialSide;
-    }
+    _log('[RoomScreen] initState: isHost=${widget.isHost} initialSide=${widget.initialSide}');
+    if (widget.initialSide != null) _mySideStr = widget.initialSide;
     if (widget.isHost) {
       _isHost = true;
-      _players = [
-        PlayerInfo(
-          id: _net.playerId ?? 'host_${DateTime.now().millisecondsSinceEpoch}',
-          name: _net.playerName ?? '我',
-          side: 'red',
-        ),
-      ];
+      _players = [PlayerInfo(
+        id: _net.playerId ?? 'host_${DateTime.now().millisecondsSinceEpoch}',
+        name: _net.playerName ?? '我', side: 'red',
+      )];
     }
     if (widget.gameAlreadyStarted) {
       _gameStarted = true;
@@ -117,288 +109,330 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _onMessage(Map<String, dynamic> data) {
     final type = data['type'] as String?;
-    _log('[RoomScreen] _onMessage: type=$type isHost=$_isHost players=${_players.length}');
+    _log('[RoomScreen] msg: $type');
 
     switch (type) {
       case 'room_created':
         _isHost = true;
         _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
-        if (data['settings'] != null) {
-          _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
-        // 房主加入玩家列表
+        if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
         if (_net.playerId != null) {
-          _players = [
-            PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
-          ];
+          _players = [PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red')];
         }
         break;
-
       case 'room_joined':
         _roomName = data['roomName'] as String? ?? '';
         _mySideStr = data['yourSide'] as String?;
-        _players = (data['players'] as List<dynamic>?)
-                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-                .toList() ?? [];
-        _spectators = (data['spectators'] as List<dynamic>?)
-                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-                .toList() ?? [];
-        if (data['settings'] != null) {
-          _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
+        _players = (data['players'] as List<dynamic>?)?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+        _spectators = (data['spectators'] as List<dynamic>?)?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList() ?? [];
+        if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
         break;
-
       case 'player_joined':
         final player = data['player'] as Map<String, dynamic>?;
-        if (player != null) {
-          _players.add(PlayerInfo.fromJson(player));
-        }
+        if (player != null) _players.add(PlayerInfo.fromJson(player));
         break;
-
       case 'settings_updated':
-        if (data['settings'] != null) {
-          _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
+        if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
         break;
-
       case 'ready_changed':
         final pid = data['playerId'] as String?;
         final ready = data['ready'] as bool? ?? false;
-        final bothReady = data['bothReady'] as bool? ?? false;
-        _bothReady = bothReady;
-        // 更新自己的准备状态
-        if (pid == _net.playerId) {
-          _myReady = ready;
-        }
+        _bothReady = data['bothReady'] as bool? ?? false;
+        if (pid == _net.playerId) _myReady = ready;
         break;
-
       case 'game_start':
         _showIntro = true;
-        _board = Board.initial();
-        _rules = Rules(_board);
+        _board = Board.initial(); _rules = Rules(_board);
         _mySideStr = data['yourSide'] as String? ?? _mySideStr;
-        _currentTurn = Side.red;
-        _myTurn = _mySideStr == 'red';
-        _selectedPos = null;
-        _validMoves = [];
-        _winner = null;
+        _currentTurn = Side.red; _myTurn = _mySideStr == 'red';
+        _selectedPos = null; _validMoves = []; _winner = null;
         break;
-
       case 'move_made':
-        if (!_gameStarted) {
-          _gameStarted = true;
-          _board = Board.initial();
-          _rules = Rules(_board);
-          _currentTurn = Side.red;
-          _myTurn = _mySideStr == 'red';
-        }
-
-        final fromData = data['from'] as Map<String, dynamic>;
-        final toData = data['to'] as Map<String, dynamic>;
-        final from = Position(fromData['col'] as int, fromData['row'] as int);
-        final to = Position(toData['col'] as int, toData['row'] as int);
-
-        _board.move(from, to);
-        _rules = Rules(_board);
-
-        _currentTurn = _currentTurn.opponent;
+        if (!_gameStarted) { _gameStarted = true; _board = Board.initial(); _rules = Rules(_board); _currentTurn = Side.red; _myTurn = _mySideStr == 'red'; }
+        final f = data['from'] as Map; final t = data['to'] as Map;
+        _board.move(Position(f['col'] as int, f['row'] as int), Position(t['col'] as int, t['row'] as int));
+        _rules = Rules(_board); _currentTurn = _currentTurn.opponent;
         _myTurn = !_isSpectator && _currentTurn == _mySide;
-        _selectedPos = null;
-        _validMoves = [];
+        _selectedPos = null; _validMoves = [];
         break;
-
       case 'game_over':
         _winner = data['winner'] as String?;
         break;
-
       case 'player_left':
         _players.removeWhere((p) => p.id == data['playerId'] as String?);
         break;
     }
-
     if (mounted) setState(() {});
   }
 
   void _onCellTap(Position pos) {
     if (!_gameStarted || _isSpectator || !_myTurn || _winner != null) return;
     if (_mySide == null) return;
-
     final piece = _board.at(pos);
-
     if (_selectedPos == null) {
       if (piece == null || piece.side != _mySide) return;
       if (piece.side != _currentTurn) return;
-      setState(() {
-        _selectedPos = pos;
-        _validMoves = _rules.getLegalMoves(pos);
-      });
+      setState(() { _selectedPos = pos; _validMoves = _rules.getLegalMoves(pos); });
     } else {
       if (piece != null && piece.side == _mySide) {
-        setState(() {
-          _selectedPos = pos;
-          _validMoves = _rules.getLegalMoves(pos);
-        });
+        setState(() { _selectedPos = pos; _validMoves = _rules.getLegalMoves(pos); });
       } else if (_validMoves.contains(pos)) {
         _net.makeMove(_selectedPos!.col, _selectedPos!.row, pos.col, pos.row);
-        setState(() {
-          _selectedPos = null;
-          _validMoves = [];
-        });
+        setState(() { _selectedPos = null; _validMoves = []; });
       } else {
-        setState(() {
-          _selectedPos = null;
-          _validMoves = [];
-        });
+        setState(() { _selectedPos = null; _validMoves = []; });
       }
     }
   }
 
   void _onIntroComplete() {
-    setState(() {
-      _showIntro = false;
-      _gameStarted = true;
-    });
+    setState(() { _showIntro = false; _gameStarted = true; });
   }
 
-  // ─── 构建 UI ───────────────────────────────
+  // ─── UI ─────────────────────────────────
 
-  Widget _buildPlayersList() {
+  /// 顶层：玩家头像与 ID
+  Widget _buildPlayersHeader() {
     final redPlayer = _players.where((p) => p.side == 'red').firstOrNull;
     final blackPlayer = _players.where((p) => p.side == 'black').firstOrNull;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      color: Colors.grey.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [const Color(0xFF8B0000).withValues(alpha: 0.05), const Color(0xFFFFD700).withValues(alpha: 0.05)],
+        ),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
       child: Row(
         children: [
-          _playerChip('🔴 红方', redPlayer?.name ?? '等待中...', _mySideStr == 'red'),
-          const Spacer(),
-          const Text('VS', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-          const Spacer(),
-          _playerChip('⚫ 黑方', blackPlayer?.name ?? '等待中...', _mySideStr == 'black'),
+          // 红方
+          Expanded(child: _playerCard(
+            name: redPlayer?.name ?? '红方',
+            sideLabel: '红方',
+            color: const Color(0xFFCC0000),
+            bgColor: const Color(0xFFCC0000).withValues(alpha: 0.1),
+            isMe: _mySideStr == 'red',
+            isReady: redPlayer != null && ((_mySideStr == 'red' && _myReady) || (_mySideStr != 'red' && _bothReady)),
+            isEmpty: redPlayer == null,
+          )),
+          // VS
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                Text('VS', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.grey.shade400, letterSpacing: 2)),
+                const SizedBox(height: 4),
+                Container(width: 2, height: 20, color: Colors.grey.shade300),
+              ],
+            ),
+          ),
+          // 黑方
+          Expanded(child: _playerCard(
+            name: blackPlayer?.name ?? '黑方',
+            sideLabel: '黑方',
+            color: Colors.black87,
+            bgColor: Colors.black.withValues(alpha: 0.08),
+            isMe: _mySideStr == 'black',
+            isReady: blackPlayer != null && ((_mySideStr == 'black' && _myReady) || (_mySideStr != 'black' && _bothReady)),
+            isEmpty: blackPlayer == null,
+          )),
         ],
       ),
     );
   }
 
-  Widget _playerChip(String label, String name, bool isMe) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        const SizedBox(height: 2),
-        Text(
-          name,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: isMe ? FontWeight.bold : FontWeight.normal,
-            color: isMe ? Colors.black87 : Colors.grey.shade600,
+  Widget _playerCard({
+    required String name,
+    required String sideLabel,
+    required Color color,
+    required Color bgColor,
+    required bool isMe,
+    required bool isReady,
+    required bool isEmpty,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 头像
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: isEmpty ? Colors.grey.shade300 : color,
+            child: isEmpty
+                ? Icon(Icons.person_off, size: 22, color: Colors.grey.shade500)
+                : Text(name[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
           ),
-        ),
-        if (isMe) const Text('(我)', style: TextStyle(fontSize: 10, color: Colors.blue)),
-      ],
+          const SizedBox(height: 6),
+          // 名字
+          Text(
+            isEmpty ? '等待中...' : name,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isMe ? FontWeight.bold : FontWeight.w500,
+              color: isEmpty ? Colors.grey : (isMe ? Colors.black87 : Colors.grey.shade700),
+            ),
+          ),
+          const SizedBox(height: 4),
+          // 标签行
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(sideLabel, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold)),
+              ),
+              if (isMe) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('我', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+              if (isReady) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('已准备', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildSettingsPanel() {
-    final settings = _settings;
-    final canUndo = settings['canUndo'] as bool? ?? true;
-    final timePerMove = settings['timePerMove'] as int? ?? 0;
-    final totalTime = settings['totalTime'] as int? ?? 0;
-    final sideChoice = settings['sideChoice'] as String? ?? 'host_red';
+  /// 中间状态提示
+  Widget _buildWaitingStatus() {
+    final hasTwoPlayers = _players.length >= 2;
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.4)),
       ),
-      child: Column(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          InkWell(
-            onTap: () => setState(() => _showSettings = !_showSettings),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.settings, size: 16),
-                  const SizedBox(width: 6),
-                  const Text('房间设置', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  const Spacer(),
-                  Icon(_showSettings ? Icons.expand_less : Icons.expand_more, size: 18),
-                ],
-              ),
+          Icon(
+            hasTwoPlayers ? Icons.check_circle : Icons.hourglass_empty,
+            size: 20,
+            color: hasTwoPlayers ? Colors.green : const Color(0xFFB8860B),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            hasTwoPlayers ? '两名玩家已就绪，可以开始对局' : '等待对手加入...',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: hasTwoPlayers ? Colors.green.shade700 : const Color(0xFF8B6914),
             ),
           ),
-          if (_showSettings) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 悔棋
-                  SwitchListTile(
-                    dense: true,
-                    title: const Text('允许悔棋', style: TextStyle(fontSize: 13)),
-                    value: canUndo,
-                    onChanged: _isHost ? (v) => _updateSetting('canUndo', v) : null,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  // 步时
-                  Row(
-                    children: [
-                      const Text('步时: ', style: TextStyle(fontSize: 13)),
-                      Expanded(
-                        child: Slider(
-                          value: timePerMove.toDouble(),
-                          max: 300,
-                          divisions: 10,
-                          label: timePerMove == 0 ? '不限' : '${timePerMove}秒',
-                          onChanged: _isHost ? (v) => _updateSetting('timePerMove', v.round()) : null,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 50,
-                        child: Text(
-                          timePerMove == 0 ? '不限' : '${timePerMove}秒',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // 局时
-                  Row(
-                    children: [
-                      const Text('局时: ', style: TextStyle(fontSize: 13)),
-                      Expanded(
-                        child: Slider(
-                          value: totalTime.toDouble(),
-                          max: 60,
-                          divisions: 12,
-                          label: totalTime == 0 ? '不限' : '${totalTime}分钟',
-                          onChanged: _isHost ? (v) => _updateSetting('totalTime', v.round()) : null,
-                        ),
-                      ),
-                      SizedBox(
-                        width: 60,
-                        child: Text(
-                          totalTime == 0 ? '不限' : '${totalTime}分钟',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // 先后手
-                  DropdownButtonFormField<String>(
-                    value: sideChoice,
-                    decoration: const InputDecoration(
-                      labelText: '先后手',
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      isDense: true,
-                      border: OutlineInputBorder(),
+        ],
+      ),
+    );
+  }
+
+  /// 中间区域：房间设置面板
+  Widget _buildSettingsPanel() {
+    final canUndo = _settings['canUndo'] as String? ?? 'mutual';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4)),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 标题栏
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+              borderRadius: const BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.tune, size: 18, color: const Color(0xFF8B0000)),
+                const SizedBox(width: 8),
+                const Text('房间设置', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF333333))),
+                if (!_isHost) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(4),
                     ),
+                    child: const Text('只读', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // 设置项
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Column(
+              children: [
+                // 悔棋模式
+                _buildSettingItem(
+                  icon: Icons.undo,
+                  label: '悔棋模式',
+                  valueWidget: DropdownButton<String>(
+                    value: canUndo,
+                    underline: const SizedBox(),
                     isDense: true,
+                    style: TextStyle(fontSize: 13, color: _isHost ? Colors.black87 : Colors.grey),
+                    items: const [
+                      DropdownMenuItem(value: 'none', child: Text('无悔', style: TextStyle(fontSize: 13))),
+                      DropdownMenuItem(value: 'mutual', child: Text('双方同意才悔棋', style: TextStyle(fontSize: 13))),
+                      DropdownMenuItem(value: 'force', child: Text('强制悔棋(3次)', style: TextStyle(fontSize: 13))),
+                    ],
+                    onChanged: _isHost ? (v) => _updateSetting('canUndo', v) : null,
+                  ),
+                ),
+                const Divider(height: 1, indent: 4),
+                // 先后手
+                _buildSettingItem(
+                  icon: Icons.swap_horiz,
+                  label: '先后手',
+                  valueWidget: DropdownButton<String>(
+                    value: _settings['sideChoice'] as String? ?? 'host_red',
+                    underline: const SizedBox(),
+                    isDense: true,
+                    style: TextStyle(fontSize: 13, color: _isHost ? Colors.black87 : Colors.grey),
                     items: const [
                       DropdownMenuItem(value: 'host_red', child: Text('房主执红', style: TextStyle(fontSize: 13))),
                       DropdownMenuItem(value: 'host_black', child: Text('房主执黑', style: TextStyle(fontSize: 13))),
@@ -406,111 +440,151 @@ class _RoomScreenState extends State<RoomScreen> {
                     ],
                     onChanged: _isHost ? (v) => _updateSetting('sideChoice', v) : null,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
   void _updateSetting(String key, dynamic value) {
-    setState(() {
-      _settings[key] = value;
-      _net.updateSettings({key: value});
-    });
+    setState(() { _settings[key] = value; _net.updateSettings({key: value}); });
   }
 
-  Widget _buildWaitingUI() {
+  Widget _buildSettingItem({
+    required IconData icon,
+    required String label,
+    required Widget valueWidget,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 10),
+          SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF555555)))),
+          const Spacer(),
+          valueWidget,
+        ],
+      ),
+    );
+  }
+
+  /// 底部：准备 + 开始按钮
+  Widget _buildBottomActions() {
     final hasTwoPlayers = _players.length >= 2;
 
-    return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (_players.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: CircularProgressIndicator(),
-            ),
-          if (_players.isNotEmpty) ...[
-            // 玩家准备状态
-            ..._players.map((p) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 4),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: p.id == _net.playerId ? Colors.blue : Colors.grey,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(p.name ?? '玩家', style: const TextStyle(fontSize: 14)),
-                  const Spacer(),
-                  Text(
-                    p.id == _net.playerId ? (_myReady ? '✅ 已准备' : '⏳ 未准备') : '⏳ 等待中',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: p.id == _net.playerId && _myReady ? Colors.green : Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            )),
-            const SizedBox(height: 16),
-          ],
-          if (!hasTwoPlayers)
-            const Text('等待对手加入...', style: TextStyle(fontSize: 16, color: Colors.grey)),
-          const SizedBox(height: 24),
-          // 准备按钮
-          if (hasTwoPlayers && !_myReady)
-            FilledButton.icon(
-              onPressed: () => _net.toggleReady(),
-              icon: const Icon(Icons.check),
-              label: const Text('准备'),
-              style: FilledButton.styleFrom(backgroundColor: Colors.green),
-            ),
-          if (hasTwoPlayers && _myReady)
-            OutlinedButton.icon(
-              onPressed: () => _net.toggleReady(),
-              icon: const Icon(Icons.close),
-              label: const Text('取消准备'),
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.orange),
-            ),
-          const SizedBox(height: 12),
-          // 开始按钮（房主专用）
-          if (_isHost && hasTwoPlayers)
-            FilledButton.icon(
-              onPressed: _bothReady ? () => _net.startGame() : null,
-              icon: const Icon(Icons.play_arrow),
-              label: Text(_bothReady ? '开始游戏' : '等待双方准备...'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.red,
-                minimumSize: const Size(200, 44),
-              ),
-            ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 12, offset: const Offset(0, -4)),
         ],
+        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (hasTwoPlayers) ...[
+              // 准备按钮
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: _myReady
+                  ? OutlinedButton.icon(
+                      onPressed: () => _net.toggleReady(),
+                      icon: const Icon(Icons.close, size: 20),
+                      label: const Text('取消准备', style: TextStyle(fontSize: 16)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.orange.shade700,
+                        side: BorderSide(color: Colors.orange.shade400),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    )
+                  : FilledButton.icon(
+                      onPressed: () => _net.toggleReady(),
+                      icon: const Icon(Icons.check, size: 20),
+                      label: const Text('准备', style: TextStyle(fontSize: 16)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green.shade600,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            // 开始按钮（房主专用）
+            if (_isHost)
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: FilledButton.icon(
+                  onPressed: (hasTwoPlayers && _bothReady) ? () => _net.startGame() : null,
+                  icon: const Icon(Icons.play_arrow, size: 22),
+                  label: Text(
+                    !hasTwoPlayers ? '等待玩家加入'
+                    : !_bothReady ? '等待双方准备'
+                    : '开始游戏',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFCC0000),
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    disabledForegroundColor: Colors.grey.shade500,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            // 非房主且不足两人时显示等待提示
+            if (!_isHost && !hasTwoPlayers)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B0000)),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('等待房主开始对局...', style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                  ],
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    _log('[RoomScreen] build: gameStarted=$_gameStarted showIntro=$_showIntro isHost=$_isHost players=${_players.length} showSettings=$_showSettings _mySideStr=$_mySideStr');
+    _log('[RoomScreen] build: game=$_gameStarted isHost=$_isHost p=${_players.length}');
     return PopScope(
       canPop: true,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) return;
-        _net.leaveRoom();
-      },
+      onPopInvokedWithResult: (didPop, _) { if (!didPop) return; _net.leaveRoom(); },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_roomName.isNotEmpty ? _roomName : '房间'),
+          title: Row(
+            children: [
+              Icon(Icons.flag, size: 18, color: const Color(0xFFCC0000)),
+              const SizedBox(width: 8),
+              Text(_roomName.isNotEmpty ? _roomName : '房间', style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          centerTitle: true,
+          backgroundColor: Colors.white,
+          elevation: 0.5,
           actions: [
             if (_gameStarted && !_isSpectator && _winner == null)
               IconButton(
-                icon: const Icon(Icons.flag),
+                icon: const Icon(Icons.flag, color: Color(0xFFCC0000)),
                 tooltip: '认输',
                 onPressed: () {
                   showDialog(
@@ -520,11 +594,10 @@ class _RoomScreenState extends State<RoomScreen> {
                       content: const Text('确定要认输吗？'),
                       actions: [
                         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-                        FilledButton(onPressed: () {
-                          Navigator.pop(ctx);
-                          _net.resign();
-                        }, child: const Text('认输', style: TextStyle(color: Colors.white)),
-                          style: FilledButton.styleFrom(backgroundColor: Colors.red)),
+                        FilledButton(
+                          style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                          onPressed: () { Navigator.pop(ctx); _net.resign(); },
+                          child: const Text('认输', style: TextStyle(color: Colors.white))),
                       ],
                     ),
                   );
@@ -532,106 +605,62 @@ class _RoomScreenState extends State<RoomScreen> {
               ),
           ],
         ),
-        body: Stack(
+        body: Column(
           children: [
-            // 调试栏（始终显示状态值）
-            Positioned(
-              top: 0, left: 0, right: 0,
-              child: Container(
-                color: Colors.red.withValues(alpha: 0.8),
-                padding: const EdgeInsets.all(4),
-                child: Text(
-                  'isHost=$_isHost game=$_gameStarted intro=$_showIntro p=${_players.length} side=$_mySideStr sSet=$_showSettings',
-                  style: const TextStyle(color: Colors.white, fontSize: 11),
+            // 等待状态
+            if (!_gameStarted && !_showIntro) ...[
+              _buildPlayersHeader(),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    children: [
+                      // 等待提示
+                      _buildWaitingStatus(),
+                      // 设置面板
+                      _buildSettingsPanel(),
+                      const SizedBox(height: 80), // 给底部按钮留空间
+                    ],
+                  ),
                 ),
               ),
-            ),
-            Column(
-              children: [
-                _buildPlayersList(),
-                if (!_isSpectator && _spectators.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    color: Colors.amber.shade50,
-                    child: Row(
-                      children: [
-                        const Icon(Icons.visibility, size: 14, color: Colors.amber),
-                        const SizedBox(width: 4),
-                        Text('观众: ${_spectators.map((p) => p.name).join(", ")}',
-                            style: const TextStyle(fontSize: 11, color: Colors.amber)),
-                      ],
-                    ),
+              // 底部操作栏（固定在底部）
+              _buildBottomActions(),
+            ],
+            // 游戏中
+            if (_gameStarted) ...[
+              if (_winner == null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  color: _myTurn ? Colors.blue.shade50 : Colors.grey.shade100,
+                  child: Row(
+                    children: [
+                      if (_myTurn) const Icon(Icons.play_arrow, size: 16, color: Colors.blue),
+                      Text(_isSpectator ? '观战中' : (_myTurn ? '轮到你了' : '等待对手走棋...'),
+                        style: TextStyle(fontSize: 13, color: _myTurn ? Colors.blue : Colors.grey)),
+                    ],
                   ),
-                // 等待中 → 设置面板 + 准备按钮
-                if (!_gameStarted && !_showIntro) ...[
-                  _buildSettingsPanel(),
-                  _buildWaitingUI(),
-                ],
-                // 游戏中 → 状态 + 棋盘
-                if (_gameStarted && _winner == null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    color: _myTurn ? Colors.blue.shade50 : Colors.grey.shade100,
-                    child: Row(
-                      children: [
-                        if (_myTurn) const Icon(Icons.play_arrow, size: 16, color: Colors.blue),
-                        Text(
-                          _isSpectator ? '观战中' :
-                          _myTurn ? '轮到你了' : '等待对手走棋...',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: _myTurn ? Colors.blue : Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                if (_gameStarted)
-                  Expanded(
-                    child: Center(
-                      child: ChessBoard(
-                        board: _board,
-                        selectedPos: _selectedPos,
-                        validMoves: _validMoves,
-                        lastMove: null,
-                        animPiece: null,
-                        playerSide: _mySide ?? Side.red,
-                        analysisMode: AnalysisMode.none,
-                        onCellTap: _onCellTap,
-                      ),
-                    ),
-                  ),
-                // 游戏结束
-                if (_winner != null)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    color: Colors.black87,
-                    child: Column(
-                      children: [
-                        Text(
-                          _winner == 'red' ? '🔴 红方胜！' : '⚫ 黑方胜！',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        FilledButton(
-                          onPressed: () {
-                            _net.leaveRoom();
-                            Navigator.pop(context);
-                          },
-                          child: const Text('返回大厅'),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-            // 开场动画覆盖层
-            if (_showIntro)
-              SwordsIntroAnimation(onComplete: _onIntroComplete),
+                ),
+              Expanded(child: Center(child: ChessBoard(
+                board: _board, selectedPos: _selectedPos, validMoves: _validMoves,
+                lastMove: null, animPiece: null,
+                playerSide: _mySide ?? Side.red,
+                analysisMode: AnalysisMode.none, onCellTap: _onCellTap,
+              ))),
+            ],
+            // 游戏结束
+            if (_winner != null)
+              Container(
+                padding: const EdgeInsets.all(16), color: Colors.black87,
+                child: Column(children: [
+                  Text(_winner == 'red' ? '🔴 红方胜！' : '⚫ 黑方胜！',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 8),
+                  FilledButton(onPressed: () { _net.leaveRoom(); Navigator.pop(context); },
+                      child: const Text('返回大厅')),
+                ]),
+              ),
+            if (_showIntro) SwordsIntroAnimation(onComplete: _onIntroComplete),
           ],
         ),
       ),
