@@ -498,7 +498,7 @@ class _RoomScreenState extends State<RoomScreen> {
             IconButton(
               icon: Icon(Icons.remove_circle_outline, size: 20, color: const Color(0xFF8B0000)),
               onPressed: value > min ? () => _updateSetting(key, value - step) : null,
-              constraints: const BoxConstraints(),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               padding: EdgeInsets.zero,
             ),
             SizedBox(
@@ -512,7 +512,7 @@ class _RoomScreenState extends State<RoomScreen> {
             IconButton(
               icon: Icon(Icons.add_circle_outline, size: 20, color: const Color(0xFF8B0000)),
               onPressed: value < max ? () => _updateSetting(key, value == 0 ? step : value + step) : null,
-              constraints: const BoxConstraints(),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               padding: EdgeInsets.zero,
             ),
           ],
