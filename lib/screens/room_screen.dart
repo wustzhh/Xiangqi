@@ -424,6 +424,12 @@ class _RoomScreenState extends State<RoomScreen> {
                   ),
                 ),
                 const Divider(height: 1, indent: 4),
+                // 步时
+                _buildTimeSetting(Icons.timer, '步时(秒)', 'timePerMove', 0, 300, 30),
+                const Divider(height: 1, indent: 4),
+                // 局时
+                _buildTimeSetting(Icons.hourglass_bottom, '局时(分)', 'totalTime', 0, 60, 5),
+                const Divider(height: 1, indent: 4),
                 // 先后手
                 _buildSettingItem(
                   icon: Icons.swap_horiz,
@@ -472,6 +478,49 @@ class _RoomScreenState extends State<RoomScreen> {
     );
   }
 
+  /// 步时/局时设置行（带 +/- 按钮）
+  Widget _buildTimeSetting(IconData icon, String label, String key, int min, int max, int step) {
+    final value = _settings[key] as int? ?? 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade600),
+          const SizedBox(width: 10),
+          SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF555555)))),
+          const Spacer(),
+          if (!_isHost)
+            Text(
+              value == 0 ? '不限' : '$value',
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            )
+          else ...[
+            IconButton(
+              icon: Icon(Icons.remove_circle_outline, size: 20, color: const Color(0xFF8B0000)),
+              onPressed: value > min ? () => _updateSetting(key, value - step) : null,
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
+            SizedBox(
+              width: 48,
+              child: Text(
+                value == 0 ? '不限' : '$value',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF333333)),
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.add_circle_outline, size: 20, color: const Color(0xFF8B0000)),
+              onPressed: value < max ? () => _updateSetting(key, value == 0 ? step : value + step) : null,
+              constraints: const BoxConstraints(),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   /// 底部：准备 + 开始按钮
   Widget _buildBottomActions() {
     final hasTwoPlayers = _players.length >= 2;
@@ -487,77 +536,69 @@ class _RoomScreenState extends State<RoomScreen> {
       ),
       child: SafeArea(
         top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (hasTwoPlayers) ...[
-              // 准备按钮
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: _myReady
-                  ? OutlinedButton.icon(
-                      onPressed: () => _net.toggleReady(),
-                      icon: const Icon(Icons.close, size: 20),
-                      label: const Text('取消准备', style: TextStyle(fontSize: 16)),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.orange.shade700,
-                        side: BorderSide(color: Colors.orange.shade400),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    )
-                  : FilledButton.icon(
-                      onPressed: () => _net.toggleReady(),
-                      icon: const Icon(Icons.check, size: 20),
-                      label: const Text('准备', style: TextStyle(fontSize: 16)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade600,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
+        child: _isHost
+          ? Row(
+              children: [
+                // 先手：准备按钮（左）
+                Expanded(child: _buildReadyButton()),
+                const SizedBox(width: 12),
+                // 先手：开始按钮（右）
+                Expanded(child: _buildStartButton(hasTwoPlayers)),
+              ],
+            )
+          : Center(
+              child: SizedBox(
+                width: hasTwoPlayers ? double.infinity : 280,
+                child: _buildReadyButton(),
               ),
-              const SizedBox(height: 10),
-            ],
-            // 开始按钮（房主专用）
-            if (_isHost)
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: FilledButton.icon(
-                  onPressed: (hasTwoPlayers && _bothReady) ? () => _net.startGame() : null,
-                  icon: const Icon(Icons.play_arrow, size: 22),
-                  label: Text(
-                    !hasTwoPlayers ? '等待玩家加入'
-                    : !_bothReady ? '等待双方准备'
-                    : '开始游戏',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFCC0000),
-                    disabledBackgroundColor: Colors.grey.shade300,
-                    disabledForegroundColor: Colors.grey.shade500,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-              ),
-            // 非房主且不足两人时显示等待提示
-            if (!_isHost && !hasTwoPlayers)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF8B0000)),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('等待房主开始对局...', style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
-                  ],
-                ),
-              ),
-          ],
+            ),
+      ),
+    );
+  }
+
+  Widget _buildReadyButton() {
+    return SizedBox(
+      height: 48,
+      child: _myReady
+        ? OutlinedButton.icon(
+            onPressed: () => _net.toggleReady(),
+            icon: const Icon(Icons.close, size: 20),
+            label: const Text('取消准备', style: TextStyle(fontSize: 16)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.orange.shade700,
+              side: BorderSide(color: Colors.orange.shade400),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          )
+        : FilledButton.icon(
+            onPressed: () => _net.toggleReady(),
+            icon: const Icon(Icons.check, size: 20),
+            label: const Text('准备', style: TextStyle(fontSize: 16)),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.green.shade600,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+    );
+  }
+
+  Widget _buildStartButton(bool hasTwoPlayers) {
+    return SizedBox(
+      height: 48,
+      child: FilledButton.icon(
+        onPressed: (hasTwoPlayers && _bothReady) ? () => _net.startGame() : null,
+        icon: const Icon(Icons.play_arrow, size: 22),
+        label: Text(
+          !hasTwoPlayers ? '等待玩家加入'
+          : !_bothReady ? '等待双方准备'
+          : '开始游戏',
+          style: const TextStyle(fontSize: 16),
+        ),
+        style: FilledButton.styleFrom(
+          backgroundColor: const Color(0xFFCC0000),
+          disabledBackgroundColor: Colors.grey.shade300,
+          disabledForegroundColor: Colors.grey.shade500,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       ),
     );
