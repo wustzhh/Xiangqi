@@ -602,12 +602,10 @@ class _RoomScreenState extends State<RoomScreen> {
                       ],
                     ),
                   ),
-                // 等待中 → 设置面板 + 准备按钮
-                if (!_gameStarted && !_showIntro) ...[
-                  _buildSettingsPanel(),
-                  _buildWaitingUI(),
-                ],
+                // 房间设置（始终显示）
+                if (!_gameStarted) _buildSettingsPanel(),
                 // 游戏中 → 状态 + 棋盘
+                if (!_gameStarted && !_showIntro) _buildWaitingUI(),
                 if (_gameStarted && _winner == null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
