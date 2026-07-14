@@ -15,13 +15,11 @@ import '../utils/constants.dart';
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
-  final String? initialSide;
-  final bool gameAlreadyStarted;
+  final Map<String, dynamic>? initialData;
   const RoomScreen({
     super.key,
     required this.roomId,
-    this.initialSide,
-    this.gameAlreadyStarted = false,
+    this.initialData,
   });
 
   @override
@@ -73,17 +71,51 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.initialSide != null) {
-      _mySideStr = widget.initialSide;
-    }
-    if (widget.gameAlreadyStarted) {
-      _gameStarted = true;
-      _board = Board.initial();
-      _rules = Rules(_board);
-      _currentTurn = Side.red;
-      _myTurn = _mySideStr == 'red';
-    }
+    // 从 initialData 恢复房间状态（避免消息被大厅消费的问题）
+    _initFromData(widget.initialData);
     _subscription = _net.messageController.stream.listen(_onMessage);
+  }
+
+  /// 从消息数据初始化房间状态
+  void _initFromData(Map<String, dynamic>? data) {
+    if (data == null) return;
+    final type = data['type'] as String?;
+
+    if (type == 'room_created') {
+      _isHost = true;
+      _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
+      if (_net.playerId != null) {
+        _players = [
+          PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
+        ];
+      }
+    } else if (type == 'room_joined') {
+      _roomName = data['roomName'] as String? ?? '';
+      _mySideStr = data['yourSide'] as String?;
+      _players = (data['players'] as List<dynamic>?)
+              ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ?? [];
+      _spectators = (data['spectators'] as List<dynamic>?)
+              ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
+              .toList() ?? [];
+      // 如果游戏已开始，初始化棋盘
+      if (data['gameStarted'] == true) {
+        _gameStarted = true;
+        _board = Board.initial();
+        _rules = Rules(_board);
+        _currentTurn = Side.red;
+        _myTurn = _mySideStr == 'red';
+      }
+      // 重连时恢复棋盘
+      if (data['reconnected'] == true && data['moveHistory'] != null) {
+        _replayMoves(data['moveHistory'] as List<dynamic>);
+        _gameStarted = true;
+      }
+    }
+    // 公共字段
+    if (data['settings'] != null) {
+      _settings = Map<String, dynamic>.from(data['settings'] as Map);
+    }
   }
 
   @override
@@ -97,39 +129,6 @@ class _RoomScreenState extends State<RoomScreen> {
     final type = data['type'] as String?;
 
     switch (type) {
-      case 'room_created':
-        _isHost = true;
-        _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
-        if (data['settings'] != null) {
-          _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
-        // 房主加入玩家列表
-        if (_net.playerId != null) {
-          _players = [
-            PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
-          ];
-        }
-        break;
-
-      case 'room_joined':
-        _roomName = data['roomName'] as String? ?? '';
-        _mySideStr = data['yourSide'] as String?;
-        _players = (data['players'] as List<dynamic>?)
-                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-                .toList() ?? [];
-        _spectators = (data['spectators'] as List<dynamic>?)
-                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
-                .toList() ?? [];
-        if (data['settings'] != null) {
-          _settings = Map<String, dynamic>.from(data['settings'] as Map);
-        }
-        // 重连时恢复棋盘状态
-        if (data['reconnected'] == true && data['moveHistory'] != null) {
-          _replayMoves(data['moveHistory'] as List<dynamic>);
-          _gameStarted = true;
-        }
-        break;
-
       case 'player_joined':
         final player = data['player'] as Map<String, dynamic>?;
         if (player != null) {
@@ -572,7 +571,7 @@ class _RoomScreenState extends State<RoomScreen> {
                   ),
                 // 等待中 → 设置面板 + 准备按钮
                 if (!_gameStarted && !_showIntro) ...[
-                  if (_isHost) _buildSettingsPanel(),
+                  _buildSettingsPanel(),
                   _buildWaitingUI(),
                 ],
                 // 游戏中 → 状态 + 棋盘
