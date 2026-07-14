@@ -589,6 +589,7 @@ class _RoomScreenState extends State<RoomScreen> {
             Column(
               children: [
                 _buildPlayersList(),
+                Container(width: double.infinity, padding: EdgeInsets.all(8), color: Colors.green, child: Text("DEBUG: _gameStarted=$_gameStarted _isHost=$_isHost _players=${_players.length}", style: TextStyle(color: Colors.white, fontSize: 12))),
                 if (!_isSpectator && _spectators.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
