@@ -32,5 +32,4 @@ android_cmdline.zip
 
 # Pre-built binaries (built from build/ directory)
 applications/*.apk
-applications/*.exe
 applications/windows-client/
