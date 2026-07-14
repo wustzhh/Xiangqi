@@ -80,11 +80,13 @@ class _RoomScreenState extends State<RoomScreen> {
     }
     if (widget.isHost) {
       _isHost = true;
-      if (_net.playerId != null) {
-        _players = [
-          PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
-        ];
-      }
+      _players = [
+        PlayerInfo(
+          id: _net.playerId ?? 'host_${DateTime.now().millisecondsSinceEpoch}',
+          name: _net.playerName ?? '我',
+          side: 'red',
+        ),
+      ];
     }
     if (widget.gameAlreadyStarted) {
       _gameStarted = true;
