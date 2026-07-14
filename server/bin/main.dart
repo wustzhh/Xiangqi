@@ -130,45 +130,51 @@ void _handleDisconnect(PlayerSession session) {
 void _handleMessage(PlayerSession session, String raw) {
   final parsed = parseClientMessage(raw);
 
-  switch (parsed.type) {
-    case ClientMsgType.createRoom:
-      _handleCreateRoom(session, parsed.data);
-      break;
-    case ClientMsgType.joinRoom:
-      _handleJoinRoom(session, parsed.data);
-      break;
-    case ClientMsgType.leaveRoom:
-      roomManager.leaveRoom(session);
-      break;
-    case ClientMsgType.listRooms:
-      _sendRoomList(session);
-      break;
-    case ClientMsgType.makeMove:
-      roomManager.handleMove(session, parsed.data);
-      break;
-    case ClientMsgType.resign:
-      roomManager.handleResign(session);
-      break;
-    case ClientMsgType.updateSettings:
-      roomManager.handleUpdateSettings(session, parsed.data);
-      break;
-    case ClientMsgType.ready:
-      roomManager.handleReadyToggle(session);
-      break;
-    case ClientMsgType.startGame:
-      roomManager.handleStartGame(session);
-      break;
-    case ClientMsgType.gameOver:
-      _handleGameOver(session, parsed.data);
-      break;
-    case ClientMsgType.updateProfile:
-      _handleUpdateProfile(session, parsed.data);
-      break;
-    case ClientMsgType.unknown:
-      // device_id 等无需处理
-      break;
-    default:
-      break;
+  try {
+    switch (parsed.type) {
+      case ClientMsgType.createRoom:
+        _handleCreateRoom(session, parsed.data);
+        break;
+      case ClientMsgType.joinRoom:
+        _handleJoinRoom(session, parsed.data);
+        break;
+      case ClientMsgType.leaveRoom:
+        roomManager.leaveRoom(session);
+        break;
+      case ClientMsgType.listRooms:
+        _sendRoomList(session);
+        break;
+      case ClientMsgType.makeMove:
+        roomManager.handleMove(session, parsed.data);
+        break;
+      case ClientMsgType.resign:
+        roomManager.handleResign(session);
+        break;
+      case ClientMsgType.updateSettings:
+        roomManager.handleUpdateSettings(session, parsed.data);
+        break;
+      case ClientMsgType.ready:
+        roomManager.handleReadyToggle(session);
+        break;
+      case ClientMsgType.startGame:
+        roomManager.handleStartGame(session);
+        break;
+      case ClientMsgType.gameOver:
+        _handleGameOver(session, parsed.data);
+        break;
+      case ClientMsgType.updateProfile:
+        _handleUpdateProfile(session, parsed.data);
+        break;
+      case ClientMsgType.unknown:
+        // device_id 等无需处理
+        break;
+      default:
+        break;
+    }
+  } catch (e, st) {
+    print('[错误] 处理消息 ${parsed.type.value} 时出错: $e');
+    print(st);
+    session.sendError('服务器内部错误');
   }
 }
 

@@ -463,7 +463,9 @@ class _RoomScreenState extends State<RoomScreen> {
   }
 
   void _updateSetting(String key, dynamic value) {
-    setState(() { _settings[key] = value; _net.updateSettings({key: value}); });
+    _settings[key] = value;
+    _net.updateSettings({key: value});
+    // 不调 setState，等服务端回声触发重建，避免闪动
   }
 
   Widget _buildSettingItem({
@@ -488,6 +490,8 @@ class _RoomScreenState extends State<RoomScreen> {
   /// 步时/局时设置行（带 +/- 按钮）
   Widget _buildTimeSetting(IconData icon, String label, String key, int min, int max, int step) {
     final value = _settings[key] as int? ?? 0;
+    final isMinDisabled = value <= min;
+    final isMaxDisabled = value >= max;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -503,8 +507,9 @@ class _RoomScreenState extends State<RoomScreen> {
             )
           else ...[
             IconButton(
-              icon: Icon(Icons.remove_circle_outline, size: 20, color: const Color(0xFF8B0000)),
-              onPressed: value > min ? () => _updateSetting(key, value - step) : null,
+              icon: Icon(Icons.remove_circle_outline, size: 20,
+                  color: isMinDisabled ? Colors.grey.shade300 : const Color(0xFF8B0000)),
+              onPressed: isMinDisabled ? null : () => _updateSetting(key, (value - step).clamp(min, max)),
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               padding: EdgeInsets.zero,
             ),
@@ -517,8 +522,9 @@ class _RoomScreenState extends State<RoomScreen> {
               ),
             ),
             IconButton(
-              icon: Icon(Icons.add_circle_outline, size: 20, color: const Color(0xFF8B0000)),
-              onPressed: value < max ? () => _updateSetting(key, value == 0 ? step : value + step) : null,
+              icon: Icon(Icons.add_circle_outline, size: 20,
+                  color: isMaxDisabled ? Colors.grey.shade300 : const Color(0xFF8B0000)),
+              onPressed: isMaxDisabled ? null : () => _updateSetting(key, (value == 0 ? step : value + step).clamp(min, max)),
               constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               padding: EdgeInsets.zero,
             ),
