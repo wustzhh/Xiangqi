@@ -40,7 +40,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _myReady = false;
   bool _bothReady = false;
   bool _showIntro = false;
-  bool _showSettings = false;
+  bool _showSettings = true;  // 默认展开
 
   // 房间设置（本地缓存）
   Map<String, dynamic> _settings = {
