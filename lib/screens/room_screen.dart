@@ -13,15 +13,16 @@ import '../widgets/chess_board.dart';
 import '../widgets/swords_intro.dart';
 import '../models/analysis_data.dart';
 import '../utils/constants.dart';
+import '../main.dart' as app;
 
-/// 调试日志（写入系统临时目录，release 也可用）
+/// 调试日志
 void _log(String msg) {
-  try {
-    final dir = Platform.environment['TEMP'] ?? Platform.environment['TMP'] ?? '/';
-    final logFile = File('$dir/xiangqi_log.txt');
-    logFile.writeAsStringSync('$msg\n', mode: FileMode.append);
-  } catch (_) {}
-  debugPrint(msg);
+  print(msg);
+  if (app.logFilePath != null) {
+    try {
+      File(app.logFilePath!).writeAsStringSync('$msg\n', mode: FileMode.append);
+    } catch (_) {}
+  }
 }
 
 class RoomScreen extends StatefulWidget {
@@ -543,7 +544,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 color: Colors.red.withValues(alpha: 0.8),
                 padding: const EdgeInsets.all(4),
                 child: Text(
-                  'isHost=$_isHost game=${_gameStarted}intro=$_showIntro p=${_players.length} side=$_mySideStr sSet=$_showSettings',
+                  'isHost=$_isHost game=$_gameStarted intro=$_showIntro p=${_players.length} side=$_mySideStr sSet=$_showSettings',
                   style: const TextStyle(color: Colors.white, fontSize: 11),
                 ),
               ),
