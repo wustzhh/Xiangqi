@@ -2,6 +2,7 @@
 library screens.room_screen;
 
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../engine/board.dart';
 import '../engine/piece.dart';
@@ -12,6 +13,14 @@ import '../widgets/chess_board.dart';
 import '../widgets/swords_intro.dart';
 import '../models/analysis_data.dart';
 import '../utils/constants.dart';
+
+/// 写入调试日志到文件
+void _log(String msg) {
+  try {
+    final f = File('xiangqi_debug.log');
+    f.writeAsStringSync('[${DateTime.now()}] $msg\n', mode: FileMode.append);
+  } catch (_) {}
+}
 
 class RoomScreen extends StatefulWidget {
   final String roomId;
@@ -75,7 +84,7 @@ class _RoomScreenState extends State<RoomScreen> {
   @override
   void initState() {
     super.initState();
-    debugPrint('[RoomScreen] initState: isHost=${widget.isHost} initialSide=${widget.initialSide} gameStarted=${widget.gameAlreadyStarted} playerId=${_net.playerId} playerName=${_net.playerName}');
+    _log('[RoomScreen] initState: isHost=${widget.isHost} initialSide=${widget.initialSide} gameStarted=${widget.gameAlreadyStarted} playerId=${_net.playerId} playerName=${_net.playerName}');
     if (widget.initialSide != null) {
       _mySideStr = widget.initialSide;
     }
@@ -108,7 +117,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _onMessage(Map<String, dynamic> data) {
     final type = data['type'] as String?;
-    debugPrint('[RoomScreen] _onMessage: type=$type isHost=$_isHost players=${_players.length}');
+    _log('[RoomScreen] _onMessage: type=$type isHost=$_isHost players=${_players.length}');
 
     switch (type) {
       case 'room_created':
@@ -488,7 +497,7 @@ class _RoomScreenState extends State<RoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('[RoomScreen] build: gameStarted=$_gameStarted showIntro=$_showIntro isHost=$_isHost players=${_players.length} showSettings=$_showSettings _mySideStr=$_mySideStr');
+    _log('[RoomScreen] build: gameStarted=$_gameStarted showIntro=$_showIntro isHost=$_isHost players=${_players.length} showSettings=$_showSettings _mySideStr=$_mySideStr');
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (didPop, _) {
