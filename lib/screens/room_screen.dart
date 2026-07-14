@@ -129,6 +129,39 @@ class _RoomScreenState extends State<RoomScreen> {
     final type = data['type'] as String?;
 
     switch (type) {
+      case 'room_created':
+        _isHost = true;
+        _roomName = (data['room'] as Map<String, dynamic>?)?['name'] as String? ?? '';
+        if (_net.playerId != null) {
+          _players = [
+            PlayerInfo(id: _net.playerId!, name: _net.playerName ?? '我', side: 'red'),
+          ];
+        }
+        break;
+
+      case 'room_joined':
+        _roomName = data['roomName'] as String? ?? '';
+        _mySideStr = data['yourSide'] as String?;
+        _players = (data['players'] as List<dynamic>?)
+                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
+                .toList() ?? [];
+        _spectators = (data['spectators'] as List<dynamic>?)
+                ?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>))
+                .toList() ?? [];
+        if (data['settings'] != null) {
+          _settings = Map<String, dynamic>.from(data['settings'] as Map);
+        }
+        if (data['gameStarted'] == true) {
+          _gameStarted = true;
+          _currentTurn = Side.red;
+          _myTurn = _mySideStr == 'red';
+        }
+        if (data['reconnected'] == true && data['moveHistory'] != null) {
+          _replayMoves(data['moveHistory'] as List<dynamic>);
+          _gameStarted = true;
+        }
+        break;
+
       case 'player_joined':
         final player = data['player'] as Map<String, dynamic>?;
         if (player != null) {
