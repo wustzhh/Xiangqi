@@ -124,11 +124,20 @@ class RoomManager {
     final room = _rooms[roomId];
     if (room == null) return;
 
-    final wasPlayer = room.getParticipant(session.id)?.role == PlayerRole.player;
+    final wasHost = session.id == room.hostId;
+    final participant = room.getParticipant(session.id);
+    final wasPlayer = participant?.role == PlayerRole.player;
+    final leavingSide = participant?.side;
 
     room.removeParticipant(session.id);
 
     if (room.isEmpty) {
+      _rooms.remove(roomId);
+    } else if (wasHost && room.status == RoomStatus.waiting) {
+      // 房主在等待中离开 → 解散房间
+      room.broadcast(buildServerMessage(ServerMsgType.roomClosed, {
+        'reason': '房主已离开',
+      }));
       _rooms.remove(roomId);
     } else {
       room.broadcastToOthers(session.id, buildServerMessage(
@@ -139,11 +148,12 @@ class RoomManager {
       ));
 
       if (wasPlayer && room.status == RoomStatus.playing) {
-        _endGame(room, 'red', '对方离开');
+        final winner = leavingSide == 'red' ? 'black' : 'red';
+        _endGame(room, winner, '对方离开');
       }
 
       if (room.players.isEmpty && room.status == RoomStatus.playing) {
-        _endGame(room, 'black', '对方离开');
+        _endGame(room, 'black', '双方离开');
         _rooms.remove(roomId);
       }
     }

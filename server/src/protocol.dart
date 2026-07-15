@@ -53,6 +53,7 @@ enum ServerMsgType {
   settingsUpdated('settings_updated'),
   readyChanged('ready_changed'),
   gameCountdown('game_countdown'),
+  roomClosed('room_closed'),
   profileUpdated('profile_updated'),
   unknown('');
 

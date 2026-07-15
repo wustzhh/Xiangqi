@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../engine/board.dart';
+import '../engine/move.dart';
 import '../engine/piece.dart';
 import '../engine/rules.dart';
 import '../models/room_info.dart';
@@ -68,6 +69,11 @@ class _RoomScreenState extends State<RoomScreen> {
   Position? _selectedPos;
   List<Position> _validMoves = [];
   String? _winner;
+
+  // 棋子移动动画
+  Position? _animFrom;
+  Position? _animTo;
+  bool _isAnimating = false;
 
   Side? _sideFromStr(String? s) {
     if (s == 'red') return Side.red;
@@ -150,16 +156,25 @@ class _RoomScreenState extends State<RoomScreen> {
       case 'move_made':
         if (!_gameStarted) { _gameStarted = true; _board = Board.initial(); _rules = Rules(_board); _currentTurn = Side.red; _myTurn = _mySideStr == 'red'; }
         final f = data['from'] as Map; final t = data['to'] as Map;
-        _board.move(Position(f['col'] as int, f['row'] as int), Position(t['col'] as int, t['row'] as int));
+        _animFrom = Position(f['col'] as int, f['row'] as int);
+        _animTo = Position(t['col'] as int, t['row'] as int);
+        _isAnimating = true;
+        _board.move(_animFrom!, _animTo!);
         _rules = Rules(_board); _currentTurn = _currentTurn.opponent;
         _myTurn = !_isSpectator && _currentTurn == _mySide;
         _selectedPos = null; _validMoves = [];
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (mounted) setState(() { _isAnimating = false; _animFrom = null; _animTo = null; });
+        });
         break;
       case 'game_over':
         _winner = data['winner'] as String?;
         break;
-      case 'player_left':
+       case 'player_left':
         _players.removeWhere((p) => p.id == data['playerId'] as String?);
+        break;
+      case 'room_closed':
+        _showRoomClosedDialog(data['reason'] as String? ?? '房间已关闭');
         break;
     }
     if (mounted) setState(() {});
@@ -187,6 +202,24 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _onIntroComplete() {
     setState(() { _showIntro = false; _gameStarted = true; });
+  }
+
+  void _showRoomClosedDialog(String reason) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('房间已关闭'),
+        content: Text(reason),
+        actions: [
+          FilledButton(onPressed: () {
+            Navigator.pop(ctx);
+            Navigator.pop(context);
+          }, child: const Text('返回大厅')),
+        ],
+      ),
+    );
   }
 
   // ─── UI ─────────────────────────────────
@@ -549,7 +582,9 @@ class _RoomScreenState extends State<RoomScreen> {
       ),
       child: SafeArea(
         top: false,
-        child: _isHost
+        child: _isSpectator
+          ? const SizedBox()
+          : _isHost
           ? Row(
               children: [
                 // 先手：准备按钮（左）
@@ -659,9 +694,11 @@ class _RoomScreenState extends State<RoomScreen> {
               ),
           ],
         ),
-        body: Column(
+        body: Stack(
           children: [
-            // 等待状态
+            Column(
+              children: [
+                // 等待状态
             if (!_gameStarted && !_showIntro) ...[
               _buildPlayersHeader(),
               Expanded(
@@ -697,7 +734,17 @@ class _RoomScreenState extends State<RoomScreen> {
                 ),
               Expanded(child: Center(child: ChessBoard(
                 board: _board, selectedPos: _selectedPos, validMoves: _validMoves,
-                lastMove: null, animPiece: null,
+                lastMove: _animTo != null
+                    ? Move(from: _animFrom!, to: _animTo!, piece: _board.at(_animTo!)!, moveNumber: 0)
+                    : null,
+                animPiece: _isAnimating && _animFrom != null && _animTo != null
+                    ? AnimationPiece(
+                        piece: _board.at(_animTo!)!,
+                        from: _animFrom!,
+                        to: _animTo!,
+                        progress: 1.0,
+                      )
+                    : null,
                 playerSide: _mySide ?? Side.red,
                 analysisMode: AnalysisMode.none, onCellTap: _onCellTap,
               ))),
@@ -714,7 +761,12 @@ class _RoomScreenState extends State<RoomScreen> {
                       child: const Text('返回大厅')),
                 ]),
               ),
-            if (_showIntro) SwordsIntroAnimation(onComplete: _onIntroComplete),
+            ],
+          ),
+            if (_showIntro)
+              Positioned.fill(
+                child: SwordsIntroAnimation(onComplete: _onIntroComplete),
+              ),
           ],
         ),
       ),
