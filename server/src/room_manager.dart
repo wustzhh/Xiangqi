@@ -349,7 +349,7 @@ class RoomManager {
     if (room == null) return false;
 
     // 找到旧的参与者并替换 session
-    final participant = room.getParticipant(newSession.id);
+    final participant = room.getParticipant(matchedId);
     if (participant == null) return false;
 
     // 更新 session 引用

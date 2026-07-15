@@ -38,7 +38,8 @@ class RoomScreen extends StatefulWidget {
   State<RoomScreen> createState() => _RoomScreenState();
 }
 
-class _RoomScreenState extends State<RoomScreen> {
+class _RoomScreenState extends State<RoomScreen>
+    with SingleTickerProviderStateMixin {
   final NetworkService _net = NetworkService();
   StreamSubscription? _subscription;
 
@@ -74,6 +75,8 @@ class _RoomScreenState extends State<RoomScreen> {
   Position? _animFrom;
   Position? _animTo;
   bool _isAnimating = false;
+  late AnimationController _moveAnimCtrl;
+  late Animation<double> _moveAnim;
 
   Side? _sideFromStr(String? s) {
     if (s == 'red') return Side.red;
@@ -103,11 +106,15 @@ class _RoomScreenState extends State<RoomScreen> {
       _currentTurn = Side.red;
       _myTurn = _mySideStr == 'red';
     }
+    _moveAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _moveAnim = CurvedAnimation(parent: _moveAnimCtrl, curve: Curves.easeInOut);
+    _moveAnimCtrl.addStatusListener((s) { if (s == AnimationStatus.completed) _onMoveAnimComplete(); });
     _subscription = _net.messageController.stream.listen(_onMessage);
   }
 
   @override
   void dispose() {
+    _moveAnimCtrl.dispose();
     _subscription?.cancel();
     _net.leaveRoom();
     super.dispose();
@@ -159,13 +166,7 @@ class _RoomScreenState extends State<RoomScreen> {
         _animFrom = Position(f['col'] as int, f['row'] as int);
         _animTo = Position(t['col'] as int, t['row'] as int);
         _isAnimating = true;
-        _board.move(_animFrom!, _animTo!);
-        _rules = Rules(_board); _currentTurn = _currentTurn.opponent;
-        _myTurn = !_isSpectator && _currentTurn == _mySide;
-        _selectedPos = null; _validMoves = [];
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) setState(() { _isAnimating = false; _animFrom = null; _animTo = null; });
-        });
+        _moveAnimCtrl.forward(from: 0.0);
         break;
       case 'game_over':
         _winner = data['winner'] as String?;
@@ -202,6 +203,15 @@ class _RoomScreenState extends State<RoomScreen> {
 
   void _onIntroComplete() {
     setState(() { _showIntro = false; _gameStarted = true; });
+  }
+
+  void _onMoveAnimComplete() {
+    if (!mounted || _animFrom == null || _animTo == null) return;
+    _board.move(_animFrom!, _animTo!);
+    _rules = Rules(_board); _currentTurn = _currentTurn.opponent;
+    _myTurn = !_isSpectator && _currentTurn == _mySide;
+    _selectedPos = null; _validMoves = [];
+    setState(() { _isAnimating = false; _animFrom = null; _animTo = null; });
   }
 
   void _showRoomClosedDialog(String reason) {
@@ -695,6 +705,7 @@ class _RoomScreenState extends State<RoomScreen> {
           ],
         ),
         body: Stack(
+          fit: StackFit.expand,
           children: [
             Column(
               children: [
@@ -734,10 +745,15 @@ class _RoomScreenState extends State<RoomScreen> {
                 ),
               Expanded(child: Center(child: ChessBoard(
                 board: _board, selectedPos: _selectedPos, validMoves: _validMoves,
-                lastMove: _animTo != null
-                    ? Move(from: _animFrom!, to: _animTo!, piece: _board.at(_animTo!)!, moveNumber: 0)
+                lastMove: null,
+                animPiece: _isAnimating && _animFrom != null && _animTo != null
+                    ? AnimationPiece(
+                        piece: _board.at(_animFrom!)!,
+                        from: _animFrom!,
+                        to: _animTo!,
+                        progress: _moveAnim.value,
+                      )
                     : null,
-                animPiece: null,
                 playerSide: _mySide ?? Side.red,
                 analysisMode: AnalysisMode.none, onCellTap: _onCellTap,
               ))),
