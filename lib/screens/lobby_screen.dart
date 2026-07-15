@@ -230,7 +230,15 @@ class _LobbyScreenState extends State<LobbyScreen> {
                 style: const TextStyle(fontSize: 12),
               ),
               trailing: room.gameStarted
-                  ? const Chip(label: Text('对局中', style: TextStyle(fontSize: 11)))
+                  ? TextButton.icon(
+                      onPressed: () => _showJoinDialog(room),
+                      icon: const Icon(Icons.visibility, size: 16),
+                      label: const Text('观战'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orange.shade700,
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
+                    )
                   : ElevatedButton(
                       onPressed: () => _showJoinDialog(room),
                       child: const Text('加入'),
