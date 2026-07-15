@@ -129,16 +129,52 @@ class RoomManager {
     final wasPlayer = participant?.role == PlayerRole.player;
     final leavingSide = participant?.side;
 
+    // 对局中玩家离开 → 不移除，给 30s 重连时间
+    if (wasPlayer && room.status == RoomStatus.playing) {
+      room.broadcast(buildServerMessage(ServerMsgType.playerLeft, {
+        'playerId': session.id,
+        'playerName': session.name,
+        'disconnected': true,
+      }));
+      final timer = Timer(Duration(seconds: reconnectTimeout), () {
+        if (_disconnected.containsKey(session.id)) {
+          _disconnected.remove(session.id);
+          room.removeParticipant(session.id);
+          final winner = leavingSide == 'red' ? 'black' : 'red';
+          _endGame(room, winner, '对方超时未重连');
+          _broadcastRoomList();
+        }
+      });
+      _disconnected[session.id] = _DisconnectedPlayer(
+        session: session,
+        roomId: roomId,
+        timer: timer,
+      );
+      _broadcastRoomList();
+      return;
+    }
+
+    // 等待中或观众：直接移除
     room.removeParticipant(session.id);
 
     if (room.isEmpty) {
       _rooms.remove(roomId);
     } else if (wasHost && room.status == RoomStatus.waiting) {
-      // 房主在等待中离开 → 解散房间
-      room.broadcast(buildServerMessage(ServerMsgType.roomClosed, {
-        'reason': '房主已离开',
-      }));
-      _rooms.remove(roomId);
+      final next = room.players.isNotEmpty ? room.players.first :
+                   room.spectators.isNotEmpty ? room.spectators.first : null;
+      if (next != null) {
+        room.hostId = next.id;
+        room.broadcast(buildServerMessage(ServerMsgType.playerLeft, {
+          'playerId': session.id,
+          'playerName': session.name,
+          'newHost': next.id,
+        }));
+      } else {
+        room.broadcast(buildServerMessage(ServerMsgType.roomClosed, {
+          'reason': '房主已离开',
+        }));
+        _rooms.remove(roomId);
+      }
     } else {
       room.broadcastToOthers(session.id, buildServerMessage(
         ServerMsgType.playerLeft, {
@@ -146,16 +182,6 @@ class RoomManager {
           'playerName': session.name,
         },
       ));
-
-      if (wasPlayer && room.status == RoomStatus.playing) {
-        final winner = leavingSide == 'red' ? 'black' : 'red';
-        _endGame(room, winner, '对方离开');
-      }
-
-      if (room.players.isEmpty && room.status == RoomStatus.playing) {
-        _endGame(room, 'black', '双方离开');
-        _rooms.remove(roomId);
-      }
     }
 
     _broadcastRoomList();
@@ -299,43 +325,7 @@ class RoomManager {
 
   /// 玩家断开连接（移到等待重连池）
   void handleDisconnect(PlayerSession session) {
-    final roomId = session.roomId;
-    if (roomId == null) return;
-
-    final room = _rooms[roomId];
-    if (room == null) return;
-
-    final wasPlayer = room.getParticipant(session.id)?.role == PlayerRole.player;
-    if (!wasPlayer) {
-      // 观众断线直接移除
-      leaveRoom(session);
-      return;
-    }
-
-    // 通知其他人玩家暂时断开
-    room.broadcast(buildServerMessage(ServerMsgType.playerLeft, {
-      'playerId': session.id,
-      'playerName': session.name,
-      'disconnected': true,
-    }));
-
-    // 启动 30s 重连计时器
-    final side = room.getParticipant(session.id)?.side ?? 'red';
-    final timer = Timer(Duration(seconds: reconnectTimeout), () {
-      // 超时未重连，结束游戏
-      if (_disconnected.containsKey(session.id)) {
-        _disconnected.remove(session.id);
-        room.removeParticipant(session.id);
-        _endGame(room, side == 'red' ? 'black' : 'red', '对方超时未重连');
-        _broadcastRoomList();
-      }
-    });
-
-    _disconnected[session.id] = _DisconnectedPlayer(
-      session: session,
-      roomId: roomId,
-      timer: timer,
-    );
+    leaveRoom(session);
   }
 
   /// 重连（用 deviceId 恢复）

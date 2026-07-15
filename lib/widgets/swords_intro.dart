@@ -68,7 +68,7 @@ class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
               children: [
                 // 双剑交叉
                 CustomPaint(
-                  size: const Size(300, 300),
+                  size: Size.infinite,
                   painter: _SwordsPainter(progress: _swordAnim.value),
                 ),
                 // 倒计时

@@ -737,14 +737,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 lastMove: _animTo != null
                     ? Move(from: _animFrom!, to: _animTo!, piece: _board.at(_animTo!)!, moveNumber: 0)
                     : null,
-                animPiece: _isAnimating && _animFrom != null && _animTo != null
-                    ? AnimationPiece(
-                        piece: _board.at(_animTo!)!,
-                        from: _animFrom!,
-                        to: _animTo!,
-                        progress: 1.0,
-                      )
-                    : null,
+                animPiece: null,
                 playerSide: _mySide ?? Side.red,
                 analysisMode: AnalysisMode.none, onCellTap: _onCellTap,
               ))),

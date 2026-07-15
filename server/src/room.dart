@@ -61,7 +61,7 @@ enum RoomStatus { waiting, playing, finished }
 class Room {
   final String id;
   final String name;
-  final String hostId;
+  String hostId;
   final List<RoomParticipant> participants = [];
   RoomStatus status = RoomStatus.waiting;
   RoomSettings settings = RoomSettings();
