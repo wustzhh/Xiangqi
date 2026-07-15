@@ -8,7 +8,6 @@ import '../engine/piece.dart';
 import '../engine/rules.dart';
 import '../utils/constants.dart';
 import '../models/game_record.dart';
-import '../models/app_config.dart';
 import '../models/game_stats.dart';
 import '../models/analysis_data.dart';
 import '../services/storage_service.dart';
@@ -66,13 +65,9 @@ class _GameScreenState extends State<GameScreen>
         difficulty: widget.aiDifficulty,
         side: widget.playerSide.opponent,
       );
-      // 传说档：从 AppConfig 读取 DeepSeek API Key
-      if (widget.aiDifficulty == AiDifficulty.legend) {
-        final key = AppConfig.deepSeekKey;
-        if (key != null && key.isNotEmpty) {
-          _aiPlayer!.setDeepSeekKey(key);
-        }
-      }
+      // 尝试加载皮卡鱼引擎（异步，不阻塞界面）
+      _loadAiEngine();
+
       // AI 先手：等第一帧渲染后再触发，避免 setState 在 mount 前调用
       if (widget.playerSide == Side.black) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -296,6 +291,16 @@ class _GameScreenState extends State<GameScreen>
       _isAnimating = true;
     });
     _animController.forward(from: 0);
+  }
+
+  /// 异步加载皮卡鱼引擎（不阻塞界面）
+  Future<void> _loadAiEngine() async {
+    try {
+      await _aiPlayer?.loadPikafishEngine();
+      debugPrint('AI 引擎加载状态: ${_aiPlayer?.hasPikafish}');
+    } catch (e) {
+      debugPrint('AI 引擎加载失败: $e');
+    }
   }
 
   void _undo() {

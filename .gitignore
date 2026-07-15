@@ -32,3 +32,6 @@ android_cmdline.zip
 
 # Pre-built binaries
 applications/windows-client/
+
+# Pikafish engine (large binaries)
+engines/

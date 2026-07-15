@@ -16,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _deepSeekCtrl;
   late TextEditingController _hostCtrl;
   late TextEditingController _portCtrl;
+  late TextEditingController _enginePathCtrl;
   bool _loading = true;
   bool _serverChanged = false;
 
@@ -25,7 +26,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _deepSeekCtrl = TextEditingController();
     _hostCtrl = TextEditingController(text: ServerConfig.host);
     _portCtrl = TextEditingController(text: ServerConfig.port.toString());
+    _enginePathCtrl = TextEditingController();
     _loadKey();
+    _loadEnginePath();
+  }
+
+  Future<void> _loadEnginePath() async {
+    await AppConfig.loadPikafishEnginePath();
+    if (AppConfig.pikafishEnginePath != null &&
+        AppConfig.pikafishEnginePath!.isNotEmpty) {
+      _enginePathCtrl.text = AppConfig.pikafishEnginePath!;
+    }
   }
 
   Future<void> _loadKey() async {
@@ -42,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _deepSeekCtrl.dispose();
     _hostCtrl.dispose();
     _portCtrl.dispose();
+    _enginePathCtrl.dispose();
     super.dispose();
   }
 
@@ -129,29 +141,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
                 const SizedBox(height: 32),
 
-                // ── UCCI 引擎路径 ──
+                // ── 皮卡鱼引擎路径 ──
                 const Text(
-                  'UCCI 引擎路径',
+                  '皮卡鱼引擎路径',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  '选填，一般不需要。不填时「大师」自动使用内置迭代加深搜索（6层）。',
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                Text(
+                  '推荐：从 https://github.com/Pikafish 下载 pikafish.exe，'
+                  '放在程序目录下可自动识别。也可手动指定路径。'
+                  '所有难度档均使用皮卡鱼引擎。',
+                  style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  enabled: false,
-                  decoration: InputDecoration(
-                    hintText: '（无需填写，暂无可用引擎）',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _enginePathCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'pikafish.exe 路径（留空自动检测）',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                          suffixIcon: _enginePathCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear),
+                                  onPressed: () {
+                                    _enginePathCtrl.clear();
+                                    AppConfig.savePikafishEnginePath('');
+                                    setState(() {});
+                                  },
+                                )
+                              : null,
+                        ),
+                        onChanged: (v) {
+                          AppConfig.savePikafishEnginePath(v.trim());
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
                       icon: const Icon(Icons.folder_open),
                       tooltip: '选择引擎文件',
                       onPressed: () {},
                     ),
-                  ),
+                  ],
                 ),
+                if (_enginePathCtrl.text.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '✓ 已保存',
+                    style: TextStyle(fontSize: 12, color: Colors.green.shade600),
+                  ),
+                ],
                 const SizedBox(height: 32),
 
                 // ── 服务器地址 ──

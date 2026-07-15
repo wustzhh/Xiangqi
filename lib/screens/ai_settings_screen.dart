@@ -24,13 +24,14 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     AiDifficulty.legend: '传说',
   };
 
-  static const _difficultyDescs = {
-    AiDifficulty.beginner: '1层搜索 · 30%随机走，入门水平',
-    AiDifficulty.easy: '2层搜索 · 基础水平，适合新手',
-    AiDifficulty.medium: '3层搜索 · 会简单战术组合',
-    AiDifficulty.hard: '开局库+4层搜索 · 开局稳健中盘有力',
-    AiDifficulty.master: '开局库+迭代6层搜索(≈UCCI引擎) · 强力战术',
-    AiDifficulty.legend: '开局库+DeepSeek AI介入+6层搜索 · 需在设置页填入API Key',
+  /// 每档难度的参数描述
+  static const _difficultyStandards = {
+    AiDifficulty.beginner: 'SL 2 · 深度4层 · 2秒 · 30%随机走',
+    AiDifficulty.easy: 'SL 5 · 深度6层 · 3秒',
+    AiDifficulty.medium: 'SL 8 · 深度10层 · 5秒',
+    AiDifficulty.hard: 'SL 12 · 不限深度 · 8秒 · 开局库',
+    AiDifficulty.master: 'SL 16 · 不限深度 · 12秒 · 开局库',
+    AiDifficulty.legend: 'SL 20 · 不限深度 · 30秒 · 开局库',
   };
 
   @override
@@ -42,6 +43,22 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         children: [
+          // ── 参数说明 ──
+          Container(
+            padding: const EdgeInsets.all(10),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'SL = Skill Level（0最弱~20最强），控制引擎故意犯错的频率。'
+              '值越低越常下劣着，值越高越接近最优走法。',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+          const SizedBox(height: 8),
+
           // ── 难度选择 ──
           const Text(
             '选择 AI 难度',
@@ -71,14 +88,39 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                     fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
-                subtitle: Text(_difficultyDescs[d]!,
-                    style: const TextStyle(fontSize: 12)),
+                subtitle: Text(
+                  _difficultyStandards[d]!,
+                  style: const TextStyle(fontSize: 12),
+                ),
                 onTap: () => setState(() => _selectedDifficulty = d),
               ),
             );
           }),
           const SizedBox(height: 16),
 
+          // ── 引擎提示 ──
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.amber.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.amber.shade200),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.amber),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '使用皮卡鱼引擎（UCI 协议）。可在「设置」页配置引擎路径。'
+                    '未找到引擎时自动降级到内置搜索。',
+                    style: TextStyle(fontSize: 12, color: Colors.brown),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
 
           // ── 先后手选择 ──

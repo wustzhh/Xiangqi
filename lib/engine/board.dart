@@ -174,6 +174,40 @@ class Board {
     return board;
   }
 
+  /// 转换为 UCCI FEN 字符串
+  ///
+  /// FEN 格式：从第 0 行（上方/黑方底线）到第 9 行（下方/红方底线）
+  /// 大写=红方：K帅 A仕 B相 N马 R车 C炮 P兵
+  /// 小写=黑方：k将 a士 b象 n马 r车 c炮 p卒
+  /// 数字=连续空格，/ 分隔行
+  String toFen() {
+    const fenMap = {
+      'red': {'general': 'K', 'advisor': 'A', 'elephant': 'B', 'horse': 'N', 'rook': 'R', 'cannon': 'C', 'soldier': 'P'},
+      'black': {'general': 'k', 'advisor': 'a', 'elephant': 'b', 'horse': 'n', 'rook': 'r', 'cannon': 'c', 'soldier': 'p'},
+    };
+    final rows = <String>[];
+    for (int r = 0; r < 10; r++) {
+      final row = <String>[];
+      int empty = 0;
+      for (int c = 0; c < 9; c++) {
+        final p = grid[r][c];
+        if (p == null) {
+          empty++;
+        } else {
+          if (empty > 0) {
+            row.add(empty.toString());
+            empty = 0;
+          }
+          final sideKey = p.side == Side.red ? 'red' : 'black';
+          row.add(fenMap[sideKey]![p.type.name]!);
+        }
+      }
+      if (empty > 0) row.add(empty.toString());
+      rows.add(row.join());
+    }
+    return rows.join('/');
+  }
+
   @override
   String toString() {
     final buf = StringBuffer("  0 1 2 3 4 5 6 7 8\n");
