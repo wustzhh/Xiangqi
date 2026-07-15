@@ -148,9 +148,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '推荐：从 https://github.com/Pikafish 下载 pikafish.exe，'
-                  '放在程序目录下可自动识别。也可手动指定路径。'
-                  '所有难度档均使用皮卡鱼引擎。',
+                  '从 https://github.com/Augus1217/Chinese-Chess/tree/main/pikafish-20260131/Windows\n'
+                  '下载 pikafish-bmi2.exe + pikafish.nnue，放在应用目录下可自动识别。',
                   style: const TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),

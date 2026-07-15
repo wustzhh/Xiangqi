@@ -113,7 +113,8 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '使用皮卡鱼引擎（UCI 协议）。可在「设置」页配置引擎路径。'
+                    '使用皮卡鱼引擎（UCI 协议）。可从设置页配置引擎路径。\n'
+                    '下载：github.com/Augus1217/Chinese-Chess → pikafish-20260131\n'
                     '未找到引擎时自动降级到内置搜索。',
                     style: TextStyle(fontSize: 12, color: Colors.brown),
                   ),
