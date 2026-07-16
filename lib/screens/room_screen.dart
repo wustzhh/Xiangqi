@@ -26,12 +26,14 @@ class RoomScreen extends StatefulWidget {
   final String? initialSide;
   final bool gameAlreadyStarted;
   final bool isHost;
+  final Map<String, dynamic>? joinedData;
   const RoomScreen({
     super.key,
     required this.roomId,
     this.initialSide,
     this.gameAlreadyStarted = false,
     this.isHost = false,
+    this.joinedData,
   });
 
   @override
@@ -53,6 +55,24 @@ class _RoomScreenState extends State<RoomScreen>
   bool _myReady = false;
   bool _bothReady = false;
   bool _showIntro = false;
+  bool _opponentDisconnected = false;
+
+  // 局面分析
+  AnalysisMode _analysisMode = AnalysisMode.none;
+  AnalysisData? get _analysisData =>
+      _analysisMode == AnalysisMode.none ? null : AnalysisData.compute(_board);
+
+  // 棋谱
+  final List<String> _moveList = [];
+  bool _showMoveList = false;
+
+  // 正在等待对方回应的请求
+  bool _pendingDrawRequest = false;
+  bool _pendingUndoRequest = false;
+  bool _hasPendingRequest = false; // 对方发来的待处理请求
+
+  // 走棋历史（用于悔棋）
+  final List<Board> _boardHistory = [];
 
   // 房间设置
   Map<String, dynamic> _settings = {
@@ -99,7 +119,22 @@ class _RoomScreenState extends State<RoomScreen>
         name: _net.playerName ?? '我', side: 'red',
       )];
     }
-    if (widget.gameAlreadyStarted) {
+    // 从 joinedData 恢复玩家列表和房间信息（首次加入和重连都用）
+    if (widget.joinedData != null) {
+      final data = widget.joinedData!;
+      _roomName = data['roomName'] as String? ?? '';
+      if (data['yourSide'] != null) _mySideStr = data['yourSide'] as String?;
+      final playersRaw = data['players'] as List<dynamic>? ?? [];
+      _players = playersRaw.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList();
+      final specRaw = data['spectators'] as List<dynamic>? ?? [];
+      _spectators = specRaw.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList();
+      if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
+      if (data['gameStarted'] == true) {
+        _gameStarted = true;
+        final history = data['moveHistory'] as List<dynamic>? ?? [];
+        _replayMoves(history);
+      }
+    } else if (widget.gameAlreadyStarted) {
       _gameStarted = true;
       _board = Board.initial();
       _rules = Rules(_board);
@@ -108,6 +143,7 @@ class _RoomScreenState extends State<RoomScreen>
     }
     _moveAnimCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
     _moveAnim = CurvedAnimation(parent: _moveAnimCtrl, curve: Curves.easeInOut);
+    _moveAnimCtrl.addListener(_onAnimTick);
     _moveAnimCtrl.addStatusListener((s) { if (s == AnimationStatus.completed) _onMoveAnimComplete(); });
     _subscription = _net.messageController.stream.listen(_onMessage);
   }
@@ -139,10 +175,31 @@ class _RoomScreenState extends State<RoomScreen>
         _players = (data['players'] as List<dynamic>?)?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList() ?? [];
         _spectators = (data['spectators'] as List<dynamic>?)?.map((e) => PlayerInfo.fromJson(e as Map<String, dynamic>)).toList() ?? [];
         if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
+        // 重连时从 moveHistory 恢复棋盘
+        if (data['reconnected'] == true && data['moveHistory'] != null) {
+          final history = data['moveHistory'] as List<dynamic>;
+          _replayMoves(history);
+          _gameStarted = true;
+        }
         break;
       case 'player_joined':
-        final player = data['player'] as Map<String, dynamic>?;
-        if (player != null) _players.add(PlayerInfo.fromJson(player));
+        final playerData = data['player'] as Map<String, dynamic>?;
+        final isReconnected = data['reconnected'] == true;
+        if (playerData != null) {
+          final newP = PlayerInfo.fromJson(playerData);
+          if (isReconnected && _gameStarted) {
+            // 重连：更新玩家信息（替换已存在的或添加）
+            _opponentDisconnected = false;
+            final idx = _players.indexWhere((p) => p.side == newP.side);
+            if (idx >= 0) {
+              _players[idx] = newP;
+            } else {
+              _players.add(newP);
+            }
+          } else {
+            _players.add(newP);
+          }
+        }
         break;
       case 'settings_updated':
         if (data['settings'] != null) _settings = Map<String, dynamic>.from(data['settings'] as Map);
@@ -166,16 +223,49 @@ class _RoomScreenState extends State<RoomScreen>
         _animFrom = Position(f['col'] as int, f['row'] as int);
         _animTo = Position(t['col'] as int, t['row'] as int);
         _isAnimating = true;
+        // 记录走法文字（格式：棋子 起→止）
+        final piece = _board.at(_animFrom!);
+        final pieceName = piece != null ? _pieceChar(piece.type, piece.side) : '?';
+        _moveList.add('$pieceName ${_posStr(_animFrom!)}→${_posStr(_animTo!)}');
         _moveAnimCtrl.forward(from: 0.0);
         break;
       case 'game_over':
         _winner = data['winner'] as String?;
+        // 弹出对局结果弹窗
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showGameOverDialog(data));
         break;
        case 'player_left':
-        _players.removeWhere((p) => p.id == data['playerId'] as String?);
+        final leftId = data['playerId'] as String?;
+        final isDisconnected = data['disconnected'] == true;
+        if (isDisconnected && _gameStarted) {
+          // 对局中断线：标记为断线，不移除
+          _opponentDisconnected = true;
+        } else {
+          _players.removeWhere((p) => p.id == leftId);
+        }
         break;
       case 'room_closed':
         _showRoomClosedDialog(data['reason'] as String? ?? '房间已关闭');
+        break;
+      case 'room_updated':
+        final action = data['action'] as String?;
+        if (action == 'undo_response') {
+          if (_boardHistory.length >= 2) {
+            _boardHistory.removeLast();
+            _boardHistory.removeLast();
+            _board = _boardHistory.last;
+            _rules = Rules(_board);
+            _currentTurn = _currentTurn.opponent;
+            _myTurn = _currentTurn == _mySide;
+            _selectedPos = null; _validMoves = [];
+          }
+        } else if (action == 'draw_offer') {
+          _hasPendingRequest = true;
+          _showDrawUndoDialog(data, 'draw');
+        } else if (action == 'undo_request') {
+          _hasPendingRequest = true;
+          _showDrawUndoDialog(data, 'undo');
+        }
         break;
     }
     if (mounted) setState(() {});
@@ -183,6 +273,7 @@ class _RoomScreenState extends State<RoomScreen>
 
   void _onCellTap(Position pos) {
     if (!_gameStarted || _isSpectator || !_myTurn || _winner != null) return;
+    if (_opponentDisconnected) return;
     if (_mySide == null) return;
     final piece = _board.at(pos);
     if (_selectedPos == null) {
@@ -204,14 +295,71 @@ class _RoomScreenState extends State<RoomScreen>
   void _onIntroComplete() {
     setState(() { _showIntro = false; _gameStarted = true; });
   }
+  void _showGameOverDialog(Map<String, dynamic> data) {
+    final winner = data['winner'] as String? ?? 'none';
+    final reason = data['reason'] as String? ?? '';
+    if (!mounted) return;
+    String title, msg;
+    if (winner == 'draw') {
+      title = '和棋';
+      msg = reason.isNotEmpty ? reason : '双方握手言和';
+    } else if ((winner == 'red' && _mySideStr == 'red') || (winner == 'black' && _mySideStr == 'black')) {
+      title = '恭喜，你赢了！';
+      msg = reason.isNotEmpty ? '原因：' + reason : '';
+    } else {
+      title = '你输了';
+      msg = reason.isNotEmpty ? '原因：' + reason : '';
+    }
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(
+      title: Text(title, textAlign: TextAlign.center),
+      content: msg.isNotEmpty ? Text(msg, textAlign: TextAlign.center) : null,
+      actions: [FilledButton(onPressed: () { Navigator.pop(ctx); _net.leaveRoom(); Navigator.pop(context); }, child: const Text('返回大厅'))],
+    ));
+  }
+
+  void _showDrawUndoDialog(Map<String, dynamic> data, String type) {
+    final playerName = data['playerName'] as String? ?? '对方';
+    if (!mounted) return;
+    showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(
+      title: Text(type == 'draw' ? '求和请求' : '悔棋请求'),
+      content: Text(playerName + '请求' + (type == 'draw' ? '和棋' : '悔棋') + '，是否同意？'),
+      actionsAlignment: MainAxisAlignment.center,
+      actions: [
+        TextButton(onPressed: () { Navigator.pop(ctx); _hasPendingRequest = false; _net.send({'type': 'draw_response', 'accept': false}); }, child: const Text('拒绝')),
+        FilledButton(onPressed: () { Navigator.pop(ctx); _hasPendingRequest = false; _net.send({'type': 'draw_response', 'accept': true}); }, child: const Text('同意')),
+      ],
+    ));
+  }
+
+
+  void _onAnimTick() {
+    if (!_isAnimating || !mounted) return;
+    if (_moveAnimCtrl.value >= 1.0) return;
+    setState(() {});
+  }
 
   void _onMoveAnimComplete() {
     if (!mounted || _animFrom == null || _animTo == null) return;
     _board.move(_animFrom!, _animTo!);
     _rules = Rules(_board); _currentTurn = _currentTurn.opponent;
     _myTurn = !_isSpectator && _currentTurn == _mySide;
+    _boardHistory.add(_board.copy());
     _selectedPos = null; _validMoves = [];
     setState(() { _isAnimating = false; _animFrom = null; _animTo = null; });
+  }
+
+  /// 从走棋历史重放重建棋盘（断线重连用）
+  void _replayMoves(List<dynamic> history) {
+    _board = Board.initial();
+    for (final entry in history) {
+      final f = entry['from'] as Map;
+      final t = entry['to'] as Map;
+      _board.move(Position(f['col'] as int, f['row'] as int),
+                   Position(t['col'] as int, t['row'] as int));
+    }
+    _rules = Rules(_board);
+    _currentTurn = history.length.isEven ? Side.red : Side.black;
+    _myTurn = _currentTurn == _mySide;
   }
 
   void _showRoomClosedDialog(String reason) {
@@ -260,6 +408,7 @@ class _RoomScreenState extends State<RoomScreen>
             isMe: _mySideStr == 'red',
             isReady: redPlayer != null && ((_mySideStr == 'red' && _myReady) || (_mySideStr != 'red' && _bothReady)),
             isEmpty: redPlayer == null,
+            isDisconnected: _gameStarted && _opponentDisconnected && _mySideStr != 'red',
           )),
           // VS
           Padding(
@@ -281,6 +430,7 @@ class _RoomScreenState extends State<RoomScreen>
             isMe: _mySideStr == 'black',
             isReady: blackPlayer != null && ((_mySideStr == 'black' && _myReady) || (_mySideStr != 'black' && _bothReady)),
             isEmpty: blackPlayer == null,
+            isDisconnected: _gameStarted && _opponentDisconnected && _mySideStr != 'black',
           )),
         ],
       ),
@@ -295,6 +445,7 @@ class _RoomScreenState extends State<RoomScreen>
     required bool isMe,
     required bool isReady,
     required bool isEmpty,
+    bool isDisconnected = false,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -347,6 +498,17 @@ class _RoomScreenState extends State<RoomScreen>
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: const Text('我', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+              if (isDisconnected) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.orange,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text('等待重连中', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ],
               if (isReady) ...[
@@ -662,6 +824,114 @@ class _RoomScreenState extends State<RoomScreen>
     );
   }
 
+  // ─── 走法辅助 ────────────────────────────
+  String _pieceChar(PieceType type, Side side) {
+    const chars = {
+      PieceType.general:   ['帥', '將'],
+      PieceType.advisor: ['仕', '士'],
+      PieceType.elephant: ['相', '象'],
+      PieceType.horse:   ['傌', '馬'],
+      PieceType.rook:   ['俥', '車'],
+      PieceType.cannon: ['炮', '砲'],
+      PieceType.soldier:   ['兵', '卒'],
+    };
+    return (chars[type] ?? ['?','?'])[side == Side.red ? 0 : 1];
+  }
+
+  String _posStr(Position p) => '${'一二三四五六七八九'[p.col]}${'１２３４５６７８９十'[p.row]}';
+
+  // ─── 分析工具栏 ───────────────────────────
+  Widget _buildAnalysisTools() {
+    final modes = [
+      (AnalysisMode.protection,  Icons.shield,    '护子'),
+      (AnalysisMode.attack,   Icons.my_location,'攻击'),
+      (AnalysisMode.safety,   Icons.security,   '安全'),
+      (AnalysisMode.danger,   Icons.warning,    '危险'),
+    ];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          for (final m in modes)
+            _buildModeBtn(m.$1, m.$2, m.$3),
+          // 棋谱按钮
+          _buildModeBtn(AnalysisMode.none, Icons.list, '棋谱',
+            onTap: () => setState(() => _showMoveList = !_showMoveList)),
+          // 求和
+          if (!_isSpectator)
+            IconButton(
+              icon: const Icon(Icons.handshake, size: 20, color: Colors.green),
+              tooltip: '求和',
+              onPressed: () { setState(() { _pendingDrawRequest = true; }); _net.send({'type': 'draw_offer'}); },
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            ),
+          // 悔棋
+          if (!_isSpectator)
+            IconButton(
+              icon: const Icon(Icons.undo, size: 20, color: Colors.brown),
+              tooltip: '悔棋',
+              onPressed: _canUndo ? () { setState(() { _pendingUndoRequest = true; }); _net.send({'type': 'undo_request'}); } : null,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            ),
+        ],
+      ),
+    );
+  }
+
+  bool get _canUndo {
+    final setting = _settings['canUndo'] as String? ?? 'none';
+    return setting != 'none' && !_isAnimating && _moveList.isNotEmpty && !_pendingUndoRequest;
+  }
+
+  Widget _buildModeBtn(AnalysisMode mode, IconData icon, String label, {VoidCallback? onTap}) {
+    final active = (_analysisMode == mode && mode != AnalysisMode.none) || (label == '棋谱' && _showMoveList);
+    return GestureDetector(
+      onTap: onTap ?? () => setState(() {
+        _analysisMode = _analysisMode == mode ? AnalysisMode.none : mode;
+        _showMoveList = false;
+      }),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? Colors.blue.shade100 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(6),
+          border: active ? Border.all(color: Colors.blue) : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: active ? Colors.blue : Colors.grey.shade600),
+            const SizedBox(width: 3),
+            Text(label, style: TextStyle(fontSize: 11, color: active ? Colors.blue : Colors.grey.shade700)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── 棋谱列表 ────────────────────────────
+  Widget _buildMoveList() {
+    if (!_showMoveList || _moveList.isEmpty) return const SizedBox.shrink();
+    return Container(
+      height: 100,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListView.builder(
+        itemCount: _moveList.length,
+        itemBuilder: (_, i) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: Text('${i+1}. ${_moveList[i]}',
+            style: TextStyle(fontSize: 12, color: i.isOdd ? Colors.black87 : Colors.grey.shade700)),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     _log('[RoomScreen] build: game=$_gameStarted isHost=$_isHost p=${_players.length}');
@@ -731,18 +1001,38 @@ class _RoomScreenState extends State<RoomScreen>
             ],
             // 游戏中
             if (_gameStarted) ...[
+              // 对局中显示双方信息栏
+              _buildPlayersHeader(),
               if (_winner == null)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  color: _myTurn ? Colors.blue.shade50 : Colors.grey.shade100,
+                  color: _opponentDisconnected ? Colors.orange.shade50 : (_myTurn ? Colors.blue.shade50 : Colors.grey.shade100),
                   child: Row(
                     children: [
-                      if (_myTurn) const Icon(Icons.play_arrow, size: 16, color: Colors.blue),
-                      Text(_isSpectator ? '观战中' : (_myTurn ? '轮到你了' : '等待对手走棋...'),
-                        style: TextStyle(fontSize: 13, color: _myTurn ? Colors.blue : Colors.grey)),
+                      Icon(
+                        _opponentDisconnected ? Icons.wifi_off : (_myTurn ? Icons.play_arrow : Icons.hourglass_empty),
+                        size: 16,
+                        color: _opponentDisconnected ? Colors.orange : (_myTurn ? Colors.blue : Colors.grey),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _opponentDisconnected
+                              ? '对手已断线，等待重连中...'
+                              : _isSpectator
+                                  ? '观战中'
+                                  : (_myTurn ? '轮到你了' : '等待对手走棋...'),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: _opponentDisconnected ? Colors.orange.shade800 : (_myTurn ? Colors.blue : Colors.grey),
+                            fontWeight: _opponentDisconnected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
+              _buildMoveList(),
               Expanded(child: Center(child: ChessBoard(
                 board: _board, selectedPos: _selectedPos, validMoves: _validMoves,
                 lastMove: null,
@@ -755,8 +1045,13 @@ class _RoomScreenState extends State<RoomScreen>
                       )
                     : null,
                 playerSide: _mySide ?? Side.red,
-                analysisMode: AnalysisMode.none, onCellTap: _onCellTap,
+                analysisMode: _analysisMode,
+                analysisData: _analysisData,
+                onCellTap: _onCellTap,
               ))),
+              // 分析工具栏
+              if (_winner == null)
+                _buildAnalysisTools(),
             ],
             // 游戏结束
             if (_winner != null)

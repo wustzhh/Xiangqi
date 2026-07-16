@@ -142,5 +142,6 @@ class Room {
     hostName: _findHost(participants, hostId)?.name ??
         (participants.isNotEmpty ? participants.first.name : '已离开'),
     gameStarted: status != RoomStatus.waiting,
+    playerDeviceIds: players.map((p) => p.session.deviceId).toList(),
   );
 }

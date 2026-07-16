@@ -9,6 +9,7 @@ class RoomInfo {
   final int spectatorCount;
   final String hostName;
   final bool gameStarted;
+  final List<String> playerDeviceIds;
 
   const RoomInfo({
     required this.id,
@@ -17,6 +18,7 @@ class RoomInfo {
     required this.spectatorCount,
     required this.hostName,
     required this.gameStarted,
+    this.playerDeviceIds = const [],
   });
 
   factory RoomInfo.fromJson(Map<String, dynamic> json) => RoomInfo(
@@ -26,6 +28,8 @@ class RoomInfo {
     spectatorCount: json['spectatorCount'] as int? ?? 0,
     hostName: json['hostName'] as String? ?? '',
     gameStarted: json['gameStarted'] as bool? ?? false,
+    playerDeviceIds: (json['playerDeviceIds'] as List<dynamic>?)
+        ?.map((e) => e as String).toList() ?? [],
   );
 }
 

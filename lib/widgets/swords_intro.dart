@@ -1,7 +1,6 @@
-/// 双剑交叉开场动画 — "3, 2, 1, GO!" + 两把剑交叉
+/// 双剑交叉开场动画 — "3, 2, 1, GO!" + ⚔️ 双剑交叉
 library widgets.swords_intro;
 
-import 'dart:math';
 import 'package:flutter/material.dart';
 
 class SwordsIntroAnimation extends StatefulWidget {
@@ -15,7 +14,8 @@ class SwordsIntroAnimation extends StatefulWidget {
 class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _swordAnim;
+  late Animation<double> _scaleAnim;
+  late Animation<double> _rotateAnim;
   late Animation<int> _countdownAnim;
   late Animation<double> _fadeOutAnim;
 
@@ -27,8 +27,12 @@ class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
       duration: const Duration(milliseconds: 2800),
     );
 
-    _swordAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.6, curve: Curves.elasticOut)),
+    _scaleAnim = Tween<double>(begin: 0.3, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.5, curve: Curves.elasticOut)),
+    );
+
+    _rotateAnim = Tween<double>(begin: -0.3, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.6, curve: Curves.easeOut)),
     );
 
     _countdownAnim = IntTween(begin: 3, end: 1).animate(
@@ -36,7 +40,7 @@ class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
     );
 
     _fadeOutAnim = Tween<double>(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.7, 1.0, curve: Curves.easeOut)),
+      CurvedAnimation(parent: _controller, curve: const Interval(0.65, 1.0, curve: Curves.easeOut)),
     );
 
     _controller.addStatusListener((status) {
@@ -66,9 +70,22 @@ class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // 双剑交叉
-                CustomPaint(
-                  painter: _SwordsPainter(progress: _swordAnim.value),
+                // 双剑交叉 emoji
+                Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()
+                    ..scale(_scaleAnim.value)
+                    ..rotateZ(_rotateAnim.value),
+                  child: const Text(
+                    '⚔️',
+                    style: TextStyle(
+                      fontSize: 120,
+                      shadows: [
+                        Shadow(blurRadius: 40, color: Color(0x44FFD700)),
+                        Shadow(blurRadius: 80, color: Color(0x22FF4500)),
+                      ],
+                    ),
+                  ),
                 ),
                 // 倒计时
                 Positioned(
@@ -104,69 +121,4 @@ class _SwordsIntroAnimationState extends State<SwordsIntroAnimation>
       },
     );
   }
-}
-
-class _SwordsPainter extends CustomPainter {
-  final double progress;
-
-  _SwordsPainter({required this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final bladeLen = size.width * 0.4;
-    final hiltLen = bladeLen * 0.25;
-    final totalLen = bladeLen + hiltLen;
-
-    final angle = pi / 6 + (pi / 3) * (1 - progress); // 从 60° 到 0°(交叉)
-
-    for (final dir in [-1, 1]) {
-      final startAngle = pi / 2 + dir * angle;
-      final endAngle = startAngle + pi;
-
-      // 剑刃
-      final bladeStart = center + Offset(cos(startAngle) * hiltLen, sin(startAngle) * hiltLen);
-      final bladeEnd = center + Offset(cos(startAngle) * totalLen, sin(startAngle) * totalLen);
-
-      final bladePaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.9 - (1 - progress) * 0.3)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4.0
-        ..strokeCap = StrokeCap.round;
-
-      canvas.drawLine(bladeStart, bladeEnd, bladePaint);
-
-      // 剑柄
-      final hiltStart = center;
-      final hiltEnd = bladeStart;
-
-      final hiltPaint = Paint()
-        ..color = Colors.orange.withValues(alpha: 0.8)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5.0
-        ..strokeCap = StrokeCap.round;
-
-      canvas.drawLine(hiltStart, hiltEnd, hiltPaint);
-
-      // 剑柄末端圆球
-      canvas.drawCircle(center, 4, Paint()..color = Colors.orange);
-    }
-
-    // 火花效果
-    if (progress > 0.5) {
-      final sparkPaint = Paint()
-        ..color = Colors.orange.withValues(alpha: (progress - 0.5) * 2 * 0.6)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
-
-      for (int i = 0; i < 8; i++) {
-        final sparkAngle = pi * 2 * (i / 8 + progress * 0.1);
-        final sparkDist = 10 + progress * 20;
-        final sparkPos = center + Offset(cos(sparkAngle) * sparkDist, sin(sparkAngle) * sparkDist);
-        canvas.drawCircle(sparkPos, 3 + progress * 2, sparkPaint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

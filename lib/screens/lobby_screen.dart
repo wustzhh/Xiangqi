@@ -56,6 +56,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
           initialSide: data['yourSide'] as String?,
           gameAlreadyStarted: data['gameStarted'] == true,
           isHost: false,
+          joinedData: Map<String, dynamic>.from(data),
         );
       }
     } else if (type == 'error') {
@@ -70,7 +71,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
     if (mounted) setState(() {});
   }
 
-  void _enterRoom(String roomId, {String? initialSide, bool gameAlreadyStarted = false, bool isHost = false}) {
+  void _enterRoom(String roomId, {String? initialSide, bool gameAlreadyStarted = false, bool isHost = false, Map<String, dynamic>? joinedData}) {
     if (!mounted) return;
     Navigator.push(
       context,
@@ -80,12 +81,31 @@ class _LobbyScreenState extends State<LobbyScreen> {
           initialSide: initialSide,
           gameAlreadyStarted: gameAlreadyStarted,
           isHost: isHost,
+          joinedData: joinedData,
         ),
       ),
     ).then((_) {
       // 返回大厅后刷新房间列表
       _net.requestRoomList();
     });
+  }
+
+  /// 判断当前用户是否是对局中的玩家（需要重连）
+  bool _isMyRoom(RoomInfo room) {
+    if (!room.gameStarted) return false;
+    final myId = _net.deviceId;
+    if (myId == null || myId.isEmpty) return false;
+    return room.playerDeviceIds.contains(myId);
+  }
+
+  /// 处理房间按钮点击（重连 vs 观战）
+  void _onRoomAction(RoomInfo room) {
+    if (_isMyRoom(room)) {
+      // 直接以玩家身份重连（asSpectator: false）
+      _net.joinRoom(room.id, asSpectator: false);
+    } else {
+      _showJoinDialog(room);
+    }
   }
 
   void _showCreateDialog() {
@@ -231,11 +251,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ),
               trailing: room.gameStarted
                   ? TextButton.icon(
-                      onPressed: () => _showJoinDialog(room),
-                      icon: const Icon(Icons.visibility, size: 16),
-                      label: const Text('观战'),
+                      onPressed: () => _onRoomAction(room),
+                      icon: Icon(_isMyRoom(room) ? Icons.replay : Icons.visibility, size: 16),
+                      label: Text(_isMyRoom(room) ? '重连' : '观战'),
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.orange.shade700,
+                        foregroundColor: _isMyRoom(room) ? Colors.green.shade700 : Colors.orange.shade700,
                         textStyle: const TextStyle(fontSize: 12),
                       ),
                     )
@@ -243,7 +263,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                       onPressed: () => _showJoinDialog(room),
                       child: const Text('加入'),
                     ),
-              onTap: () => _showJoinDialog(room),
+              onTap: () => _isMyRoom(room) ? _onRoomAction(room) : _showJoinDialog(room),
             ),
           );
         },

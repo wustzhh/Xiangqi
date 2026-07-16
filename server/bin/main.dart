@@ -165,6 +165,18 @@ void _handleMessage(PlayerSession session, String raw) {
       case ClientMsgType.updateProfile:
         _handleUpdateProfile(session, parsed.data);
         break;
+      case ClientMsgType.drawOffer:
+        roomManager.handleDrawOffer(session);
+        break;
+      case ClientMsgType.drawResponse:
+        roomManager.handleDrawResponse(session, parsed.data);
+        break;
+      case ClientMsgType.undoRequest:
+        roomManager.handleUndoRequest(session);
+        break;
+      case ClientMsgType.undoResponse:
+        roomManager.handleUndoResponse(session);
+        break;
       case ClientMsgType.unknown:
         // device_id 等无需处理
         break;

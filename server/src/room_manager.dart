@@ -20,7 +20,9 @@ class RoomManager {
 
   /// 获取房间列表
   List<RoomSummary> get roomList =>
-      _rooms.values.map((r) => r.summary).toList();
+      _rooms.values
+          .where((r) => r.status != RoomStatus.finished)
+          .map((r) => r.summary).toList();
 
   /// 通过 ID 查找房间
   Room? findRoom(String roomId) => _rooms[roomId];
@@ -58,9 +60,69 @@ class RoomManager {
       return;
     }
 
-    // 对局中只允许观战
+    // 对局中只允许观战（但在断线池中的玩家可以重连）
     if (room.status == RoomStatus.playing && !asSpectator) {
-      joiner.sendError('对局已开始，只能观战');
+      // 检查是否是需要重连的断线玩家
+      String? disconnectedKey;
+      for (final entry in _disconnected.entries) {
+        if (entry.value.session.deviceId == joiner.deviceId &&
+            entry.value.roomId == roomId) {
+          disconnectedKey = entry.key;
+          break;
+        }
+      }
+      if (disconnectedKey == null) {
+        joiner.sendError('对局已开始，只能观战');
+        return;
+      }
+      // 是断线重连：替换 session，恢复游戏状态
+      final old = _disconnected.remove(disconnectedKey)!;
+      old.timer.cancel(); // 取消超时计时器
+
+      final participant = room.getParticipant(disconnectedKey);
+      if (participant == null) {
+        joiner.sendError('重连失败：玩家不在房间中');
+        return;
+      }
+
+      // 替换 session（仅在不同 session 时才断开旧的 WebSocket）
+      final isSameSession = participant.session.id == joiner.id;
+      if (!isSameSession) {
+        participant.session.disconnect();
+        final idx = room.participants.indexOf(participant);
+        room.participants[idx] = RoomParticipant(
+          session: joiner,
+          role: participant.role,
+          side: participant.side,
+        );
+        joiner.roomId = room.id;
+      }
+
+      // 广播重连
+      room.broadcast(buildServerMessage(ServerMsgType.playerJoined, {
+        'player': PlayerInfo(id: joiner.id, name: joiner.name, side: participant.side).toJson(),
+        'reconnected': true,
+      }));
+
+      // 发送完整游戏状态给重连者
+      final playersJson = room.players.map((p) => PlayerInfo(
+        id: p.id, name: p.name, side: p.side,
+      ).toJson()).toList();
+      final spectatorsJson = room.spectators.map((p) => PlayerInfo(
+        id: p.id, name: p.name, side: p.side,
+      ).toJson()).toList();
+      joiner.sendMessage(ServerMsgType.roomJoined, {
+        'roomId': roomId,
+        'roomName': room.name,
+        'players': playersJson,
+        'spectators': spectatorsJson,
+        'yourSide': participant.side,
+        'gameStarted': true,
+        'reconnected': true,
+        'moveHistory': room.moveHistory,
+      });
+
+      _broadcastRoomList();
       return;
     }
 
@@ -151,6 +213,18 @@ class RoomManager {
         timer: timer,
       );
       _broadcastRoomList();
+
+      // 如果双方都已断线，立即结束游戏
+      final remainingPlayers = room.players.where(
+        (p) => !_disconnected.containsKey(p.id)
+      ).toList();
+      if (remainingPlayers.isEmpty) {
+        // 取消所有断线计时器
+        for (final p in room.players) {
+          _disconnected.remove(p.id)?.timer.cancel();
+        }
+        _endGame(room, 'none', '双方都离开了');
+      }
       return;
     }
 
@@ -245,6 +319,53 @@ class RoomManager {
 
     final winner = participant.side == 'red' ? 'black' : 'red';
     _endGame(room, winner, '认输');
+  }
+
+  /// 处理求和（转发给对方）
+  void handleDrawOffer(PlayerSession session) {
+    final room = _rooms[session.roomId];
+    if (room == null || room.status != RoomStatus.playing) return;
+    room.broadcastToOthers(session.id, buildServerMessage(
+      ServerMsgType.roomUpdated, {
+        'action': 'draw_offer',
+        'playerId': session.id,
+        'playerName': session.name,
+      },
+    ));
+  }
+
+  /// 处理求和响应
+  void handleDrawResponse(PlayerSession session, Map<String, dynamic> data) {
+    final accept = data['accept'] as bool? ?? false;
+    if (!accept) return;
+    final room = _rooms[session.roomId];
+    if (room == null || room.status != RoomStatus.playing) return;
+    _endGame(room, 'draw', '双方同意和棋');
+  }
+
+  /// 处理悔棋（转发给对方确认）
+  void handleUndoRequest(PlayerSession session) {
+    final room = _rooms[session.roomId];
+    if (room == null || room.status != RoomStatus.playing) return;
+    final setting = room.settings.canUndo;
+    if (setting == 'none') { session.sendError('此房间禁止悔棋'); return; }
+    room.broadcastToOthers(session.id, buildServerMessage(
+      ServerMsgType.roomUpdated, {
+        'action': 'undo_request',
+        'playerId': session.id,
+        'playerName': session.name,
+      },
+    ));
+  }
+
+  /// 处理悔棋响应（对方同意后广播给对方）
+  void handleUndoResponse(PlayerSession session) {
+    final room = _rooms[session.roomId];
+    if (room == null || room.status != RoomStatus.playing) return;
+    room.broadcastMessage(ServerMsgType.roomUpdated, {
+      'action': 'undo_response',
+      'playerId': session.id,
+    });
   }
 
   /// 处理设置更新
@@ -432,6 +553,14 @@ class RoomManager {
     });
 
     _broadcastRoomList();
+
+    // 5秒后自动移除已结束的房间
+    Timer(const Duration(seconds: 5), () {
+      if (_rooms[room.id]?.status == RoomStatus.finished) {
+        _rooms.remove(room.id);
+        _broadcastRoomList();
+      }
+    });
   }
 
   void _broadcastRoomList() {

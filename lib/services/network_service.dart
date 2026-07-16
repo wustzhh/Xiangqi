@@ -49,6 +49,7 @@ class NetworkService extends ChangeNotifier {
 
   /// 设备 ID（匿名持久化）
   String? _deviceId;
+  String? get deviceId => _deviceId;
 
   /// 连接到服务器
   Future<bool> connect(String host, int port) async {

@@ -18,6 +18,8 @@ enum ClientMsgType {
   resign('resign'),
   drawOffer('draw_offer'),
   drawResponse('draw_response'),
+  undoRequest('undo_request'),
+  undoResponse('undo_response'),
   ready('ready'),
   updateSettings('update_settings'),
   startGame('start_game'),
@@ -108,6 +110,7 @@ class RoomSummary {
   final int spectatorCount;
   final String hostName;
   final bool gameStarted;
+  final List<String> playerDeviceIds;
 
   const RoomSummary({
     required this.id,
@@ -116,6 +119,7 @@ class RoomSummary {
     required this.spectatorCount,
     required this.hostName,
     required this.gameStarted,
+    this.playerDeviceIds = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -125,6 +129,7 @@ class RoomSummary {
     'spectatorCount': spectatorCount,
     'hostName': hostName,
     'gameStarted': gameStarted,
+    'playerDeviceIds': playerDeviceIds,
   };
 }
 
